@@ -1,0 +1,72 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Dados da conta individual do atleta, metas e preferências personalizadas.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "soundProfile": { "type": "string", "enum": ["whistle", "siren", "high_digital", "boxing_bell", "classic"] },
+        "volume": { "type": "number" },
+        "ttsEnabled": { "type": "boolean" },
+        "beepsEnabled": { "type": "boolean" },
+        "vibrationEnabled": { "type": "boolean" },
+        "weeklyGoalKm": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["userId", "email"]
+    },
+    "UserWorkout": {
+      "title": "UserWorkout",
+      "description": "Treino intervalado personalizado salvo pelo usuário no banco de dados.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "items": { "type": "array" },
+        "totalEstimatedSeconds": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "userId", "name", "items"]
+    },
+    "RunHistory": {
+      "title": "RunHistory",
+      "description": "Histórico de corrida realizada com métricas de tempo, GPS, ritmo e calorias.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "workoutId": { "type": "string" },
+        "workoutName": { "type": "string" },
+        "totalElapsedSeconds": { "type": "number" },
+        "distanceMeters": { "type": "number" },
+        "averagePace": { "type": "string" },
+        "stepsCompleted": { "type": "number" },
+        "totalSteps": { "type": "number" },
+        "completedAt": { "type": "number" }
+      },
+      "required": ["id", "userId", "workoutName", "totalElapsedSeconds", "completedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Perfil e preferências individuais do usuário"
+    },
+    "/users/{userId}/workouts/{workoutId}": {
+      "schema": "UserWorkout",
+      "description": "Coleção de treinos personalizados da conta do usuário"
+    },
+    "/users/{userId}/runs/{runId}": {
+      "schema": "RunHistory",
+      "description": "Histórico de corridas e métricas GPS salvas na conta do usuário"
+    }
+  }
+}

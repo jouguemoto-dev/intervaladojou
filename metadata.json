@@ -1,0 +1,6 @@
+{
+  "name": "RitmoInterval: Treino Intervalado & HIIT Android",
+  "description": "Aplicativo Android para treino de corrida intervalada personalizável com Dashboard de esforço em tempo real, alertas sonoros/TTS e código completo em Kotlin e Jetpack Compose.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
