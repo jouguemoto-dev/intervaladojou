@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#020617"/>
+      <stop offset="50%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#022c22"/>
+    </linearGradient>
+    <linearGradient id="primary" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#10b981" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Background with safe rounded squircle -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="112" fill="none" stroke="#10b981" stroke-width="6" stroke-opacity="0.25"/>
+
+  <!-- Pulse / Speed Track Inner Ring -->
+  <circle cx="256" cy="256" r="160" fill="none" stroke="#334155" stroke-width="12" stroke-dasharray="8 8"/>
+  <circle cx="256" cy="256" r="160" fill="none" stroke="url(#primary)" stroke-width="14" stroke-dasharray="280 720" stroke-linecap="round"/>
+
+  <!-- Dynamic Runner / Pulse Icon -->
+  <g filter="url(#glow)" transform="translate(136, 126)">
+    <!-- Runner Silhouette stylized -->
+    <!-- Head -->
+    <circle cx="150" cy="40" r="28" fill="#10b981"/>
+    <!-- Body Core -->
+    <path d="M128 78 C128 72, 136 68, 148 68 C160 68, 172 74, 180 84 L204 116 C210 124, 206 136, 196 140 C186 144, 176 138, 170 128 L158 112 L142 164 L180 200 C188 208, 186 220, 176 226 C168 232, 156 228, 150 220 L118 180 C112 172, 110 162, 114 152 L126 112 L96 132 C86 138, 74 134, 68 124 C62 114, 66 102, 76 96 Z" fill="#34d399"/>
+    <!-- Leg stride 1 (Forward high knee) -->
+    <path d="M120 180 L88 214 C80 222, 68 222, 60 214 C52 206, 52 194, 60 186 L94 150 Z" fill="#10b981"/>
+    <!-- Leg stride 2 (Back push) -->
+    <path d="M142 164 L160 216 L208 244 C218 250, 222 262, 216 272 C210 282, 198 286, 188 280 L144 252 C136 248, 130 238, 128 228 L114 176 Z" fill="#059669"/>
+  </g>
+
+  <!-- Speed Metric Graphic Accent (Pulse beat lines) -->
+  <path d="M90 390 L160 390 L185 340 L215 440 L245 370 L275 410 L300 390 L422 390" fill="none" stroke="#34d399" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+</svg>

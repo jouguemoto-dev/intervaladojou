@@ -95,13 +95,19 @@ export const UserAccountModal: React.FC<UserAccountModalProps> = ({
     try {
       const runsRef = collection(db, 'users', currentUser.uid, 'runs');
       const q = query(runsRef, orderBy('completedAt', 'desc'), limit(15));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const list: RunHistoryItem[] = [];
-        snapshot.forEach((doc) => {
-          list.push({ id: doc.id, ...(doc.data() as any) });
-        });
-        setRunHistory(list);
-      });
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const list: RunHistoryItem[] = [];
+          snapshot.forEach((doc) => {
+            list.push({ id: doc.id, ...(doc.data() as any) });
+          });
+          setRunHistory(list);
+        },
+        (error) => {
+          console.warn('Runs history snapshot warning:', error);
+        }
+      );
       return () => unsubscribe();
     } catch {
       // Offline fallback

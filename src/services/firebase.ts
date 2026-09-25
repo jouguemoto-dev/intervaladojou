@@ -49,6 +49,7 @@ export interface AthleteProfile {
   vibrationEnabled: boolean;
   weeklyGoalKm: number;
   runningLevel: 'iniciante' | 'intermediario' | 'avancado';
+  workoutsSeeded?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -68,6 +69,18 @@ export interface RunHistoryItem {
 }
 
 /**
+ * Ensures an active Firebase session is always running.
+ * If user hasn't signed in, creates an anonymous athlete session connected to Firestore.
+ */
+export async function ensureActiveAuth(): Promise<User> {
+  if (auth.currentUser) {
+    return auth.currentUser;
+  }
+  const cred = await signInAnonymously(auth);
+  return cred.user;
+}
+
+/**
  * Creates or updates user athlete profile in Firestore
  */
 export async function syncUserProfile(user: User, customData?: Partial<AthleteProfile>): Promise<AthleteProfile> {
@@ -82,15 +95,16 @@ export async function syncUserProfile(user: User, customData?: Partial<AthletePr
       ...existing,
       ...customData,
       email: user.email || existing.email || 'atleta@ritmointerval.com',
-      displayName: customData?.displayName || user.displayName || existing.displayName || 'Corredor',
+      displayName: customData?.displayName || user.displayName || existing.displayName || (user.isAnonymous ? 'Atleta' : 'Meu Perfil'),
       photoURL: user.photoURL || existing.photoURL || '',
+      workoutsSeeded: existing.workoutsSeeded ?? customData?.workoutsSeeded ?? false,
       updatedAt: Date.now(),
     };
   } else {
     profile = {
       userId: user.uid,
       email: user.email || 'atleta@ritmointerval.com',
-      displayName: user.displayName || (user.isAnonymous ? 'Corredor Convidado' : 'Meu Perfil'),
+      displayName: user.displayName || (user.isAnonymous ? 'Atleta' : 'Meu Perfil'),
       photoURL: user.photoURL || '',
       soundProfile: 'whistle',
       volumeBoost: 1.0,
@@ -99,6 +113,7 @@ export async function syncUserProfile(user: User, customData?: Partial<AthletePr
       vibrationEnabled: true,
       weeklyGoalKm: 15,
       runningLevel: 'intermediario',
+      workoutsSeeded: customData?.workoutsSeeded ?? false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       ...customData,
@@ -107,6 +122,11 @@ export async function syncUserProfile(user: User, customData?: Partial<AthletePr
 
   await setDoc(userRef, profile, { merge: true });
   return profile;
+}
+
+export async function markUserWorkoutsSeeded(userId: string): Promise<void> {
+  const userRef = doc(db, 'users', userId);
+  await setDoc(userRef, { workoutsSeeded: true, updatedAt: Date.now() }, { merge: true });
 }
 
 /**
@@ -119,6 +139,8 @@ export async function saveUserWorkoutToCloud(userId: string, workout: Workout): 
     userId,
     updatedAt: Date.now(),
   });
+  // Mark that this user has workouts registered
+  await markUserWorkoutsSeeded(userId);
 }
 
 /**

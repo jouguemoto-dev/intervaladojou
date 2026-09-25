@@ -6,7 +6,15 @@ interface AndroidFrameProps {
 }
 
 export const AndroidFrame: React.FC<AndroidFrameProps> = ({ children }) => {
-  const [deviceMode, setDeviceMode] = useState<'mobile' | 'fluid'>('mobile');
+  const [deviceMode, setDeviceMode] = useState<'mobile' | 'fluid'>(() => {
+    if (typeof window !== 'undefined') {
+      const isMobile = window.innerWidth <= 768 || 
+        window.matchMedia('(display-mode: standalone)').matches ||
+        (window.navigator as any).standalone === true;
+      return isMobile ? 'fluid' : 'mobile';
+    }
+    return 'mobile';
+  });
 
   // Current simulated time for status bar
   const currentTime = '08:45';

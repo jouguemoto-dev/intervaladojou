@@ -12,9 +12,14 @@ import {
   Database,
   Smartphone,
   ExternalLink,
+  ArrowLeft,
 } from 'lucide-react';
 
-export const AndroidCodeHub: React.FC = () => {
+interface AndroidCodeHubProps {
+  onBack?: () => void;
+}
+
+export const AndroidCodeHub: React.FC<AndroidCodeHubProps> = ({ onBack }) => {
   const [selectedFileId, setSelectedFileId] = useState<string>(ANDROID_CODE_FILES[0].id);
   const [copied, setCopied] = useState(false);
 
@@ -67,19 +72,30 @@ export const AndroidCodeHub: React.FC = () => {
       {/* Top Banner */}
       <div className="bg-slate-900 border-b border-slate-800 p-4 sm:p-5">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase tracking-wider border border-emerald-500/30">
-                Código Nativo Android
-              </span>
-              <span className="text-xs text-slate-400">• Kotlin 1.9+ & Jetpack Compose</span>
+          <div className="flex items-start gap-3">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer mt-0.5"
+                title="Voltar aos treinos"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            )}
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs text-emerald-400 font-bold uppercase tracking-wider">
+                  Código Nativo Android
+                </span>
+                <span className="text-xs text-slate-400">· Kotlin 1.9+ & Jetpack Compose</span>
+              </div>
+              <h1 className="text-xl sm:text-2xl font-black text-white">
+                Arquitetura e Entregáveis Android Studio
+              </h1>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Todos os arquivos Kotlin, Room Database, Foreground Service e Manifesto prontos para importar e rodar no seu celular.
+              </p>
             </div>
-            <h1 className="text-xl sm:text-2xl font-black text-white">
-              Arquitetura e Entregáveis Android Studio
-            </h1>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Todos os arquivos Kotlin, Room Database, Foreground Service e Manifesto prontos para importar e rodar no seu celular.
-            </p>
           </div>
 
           <div className="flex items-center gap-2">

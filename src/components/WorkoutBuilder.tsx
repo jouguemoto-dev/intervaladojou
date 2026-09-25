@@ -18,13 +18,8 @@ import {
   Play,
   Save,
   ArrowLeft,
-  Flame,
-  Zap,
-  Activity,
-  Footprints,
-  Coffee,
   Copy,
-  Info,
+  Minus,
 } from 'lucide-react';
 
 interface WorkoutBuilderProps {
@@ -42,7 +37,7 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
 }) => {
   const [name, setName] = useState(initialWorkout?.name || 'Novo Treino Intervalado');
   const [description, setDescription] = useState(
-    initialWorkout?.description || 'Treino intervalado personalizado com fases ajustadas.'
+    initialWorkout?.description || 'Treino intervalado com fases de esforço e recuperação.'
   );
   const [items, setItems] = useState<WorkoutItem[]>(
     initialWorkout?.items || [
@@ -89,26 +84,8 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
     ]
   );
 
-  // Compute live dashboard metrics in real time
   const dashboard = calculateWorkoutDashboard(items);
 
-  // Helper to get icon for phase
-  const getPhaseIcon = (phase: PhaseType, size = 'w-4 h-4') => {
-    switch (phase) {
-      case 'warmup':
-        return <Flame className={size} />;
-      case 'high_intensity':
-        return <Zap className={size} />;
-      case 'low_intensity':
-        return <Activity className={size} />;
-      case 'walk':
-        return <Footprints className={size} />;
-      case 'rest':
-        return <Coffee className={size} />;
-    }
-  };
-
-  // Add single step
   const addSingleStep = (phase: PhaseType = 'high_intensity', duration = 60) => {
     const newStep: WorkoutItem = {
       type: 'single',
@@ -122,13 +99,12 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
     setItems((prev) => [...prev, newStep]);
   };
 
-  // Add interval pair block (e.g. 4x Tiro 40s + Trote 50s)
   const addIntervalBlock = (reps = 4, sprint = 40, recovery = 50) => {
     const newBlock: WorkoutItem = {
       type: 'block',
       block: {
         id: `block_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        name: `Série Intervalada (${reps}x)`,
+        name: 'Série Intervalada',
         repetitions: reps,
         steps: [
           {
@@ -149,7 +125,6 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
     setItems((prev) => [...prev, newBlock]);
   };
 
-  // Update single step duration
   const updateSingleStepDuration = (itemIndex: number, deltaSeconds: number) => {
     setItems((prev) => {
       const copy = [...prev];
@@ -165,22 +140,6 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
     });
   };
 
-  // Set exact single step duration
-  const setExactSingleStepDuration = (itemIndex: number, seconds: number) => {
-    setItems((prev) => {
-      const copy = [...prev];
-      const item = copy[itemIndex];
-      if (item && item.type === 'single') {
-        copy[itemIndex] = {
-          ...item,
-          step: { ...item.step, durationSeconds: Math.max(5, seconds) },
-        };
-      }
-      return copy;
-    });
-  };
-
-  // Change single step phase
   const updateSingleStepPhase = (itemIndex: number, newPhase: PhaseType) => {
     setItems((prev) => {
       const copy = [...prev];
@@ -195,7 +154,6 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
     });
   };
 
-  // Update block repetition count
   const updateBlockRepetitions = (itemIndex: number, delta: number) => {
     setItems((prev) => {
       const copy = [...prev];
@@ -211,7 +169,6 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
     });
   };
 
-  // Update a step inside a block
   const updateBlockStepDuration = (itemIndex: number, stepIndex: number, deltaSeconds: number) => {
     setItems((prev) => {
       const copy = [...prev];
@@ -234,7 +191,6 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
     });
   };
 
-  // Change step phase inside block
   const updateBlockStepPhase = (itemIndex: number, stepIndex: number, newPhase: PhaseType) => {
     setItems((prev) => {
       const copy = [...prev];
@@ -256,50 +212,45 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
     });
   };
 
-  // Add a step inside an existing block
-  const addStepToBlock = (itemIndex: number, phase: PhaseType = 'low_intensity') => {
+  const addStepToBlock = (itemIndex: number) => {
     setItems((prev) => {
       const copy = [...prev];
       const item = copy[itemIndex];
       if (item && item.type === 'block') {
-        const newSubStep: WorkoutStep = {
-          id: `step_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-          phase,
-          durationSeconds: 45,
-          notes: '',
-        };
+        const stepsCopy = [
+          ...item.block.steps,
+          {
+            id: `sub_${Date.now()}`,
+            phase: 'low_intensity' as PhaseType,
+            durationSeconds: 45,
+            notes: '',
+          },
+        ];
         copy[itemIndex] = {
           ...item,
-          block: { ...item.block, steps: [...item.block.steps, newSubStep] },
+          block: { ...item.block, steps: stepsCopy },
         };
       }
       return copy;
     });
   };
 
-  // Remove a step inside block
   const removeStepFromBlock = (itemIndex: number, stepIndex: number) => {
     setItems((prev) => {
       const copy = [...prev];
       const item = copy[itemIndex];
       if (item && item.type === 'block') {
-        if (item.block.steps.length <= 1) {
-          // If only 1 step left, remove the whole block
-          copy.splice(itemIndex, 1);
-        } else {
-          const stepsCopy = [...item.block.steps];
-          stepsCopy.splice(stepIndex, 1);
-          copy[itemIndex] = {
-            ...item,
-            block: { ...item.block, steps: stepsCopy },
-          };
-        }
+        if (item.block.steps.length <= 1) return prev; // Keep at least 1 step
+        const stepsCopy = item.block.steps.filter((_, idx) => idx !== stepIndex);
+        copy[itemIndex] = {
+          ...item,
+          block: { ...item.block, steps: stepsCopy },
+        };
       }
       return copy;
     });
   };
 
-  // Move item up / down
   const moveItem = (index: number, direction: 'up' | 'down') => {
     setItems((prev) => {
       const copy = [...prev];
@@ -312,7 +263,6 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
     });
   };
 
-  // Duplicate item
   const duplicateItem = (index: number) => {
     setItems((prev) => {
       const copy = [...prev];
@@ -328,7 +278,6 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
     });
   };
 
-  // Delete item
   const deleteItem = (index: number) => {
     setItems((prev) => prev.filter((_, idx) => idx !== index));
   };
@@ -345,492 +294,373 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
   };
 
   const handleSaveOnly = () => {
+    if (items.length === 0) return;
     onSave(handleBuildWorkoutObject());
   };
 
   const handleSaveAndStart = () => {
+    if (items.length === 0) return;
     const workout = handleBuildWorkoutObject();
     onSave(workout);
     onStart(workout);
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 text-slate-100 overflow-y-auto">
+    <div className="flex flex-col h-full bg-slate-950 text-slate-100 overflow-y-auto pb-24">
       {/* Top Bar */}
       <div className="sticky top-0 z-20 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <button
             onClick={onCancel}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
             title="Voltar"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-base font-bold text-white leading-tight">
-              {initialWorkout ? 'Editar Treino' : 'Criar Novo Treino'}
+            <h1 className="text-sm font-bold text-white leading-tight">
+              {initialWorkout ? 'Editar Treino' : 'Estruturar Treino'}
             </h1>
-            <p className="text-[11px] text-slate-400">Personalize etapas e repetições</p>
+            <p className="text-[11px] text-slate-400">Monte suas etapas e repetições</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             onClick={handleSaveOnly}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-all active:scale-95 shadow-sm"
+            disabled={items.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-all active:scale-95 cursor-pointer disabled:opacity-50"
           >
-            <Save className="w-3.5 h-3.5 text-blue-400" />
-            <span className="hidden sm:inline">Salvar</span>
+            <Save className="w-3.5 h-3.5" />
+            <span>Salvar</span>
           </button>
 
           <button
             onClick={handleSaveAndStart}
             disabled={items.length === 0}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg shadow-emerald-900/30 transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
-            <span>Iniciar Corrida</span>
+            <span>Iniciar</span>
           </button>
         </div>
       </div>
 
-      <div className="p-4 sm:p-6 max-w-3xl mx-auto w-full space-y-6">
-        {/* Workout Details (Name & Description) */}
-        <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-4 space-y-3">
+      <div className="p-4 sm:p-6 max-w-3xl mx-auto w-full space-y-5">
+        {/* Name & Notes */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
           <div>
-            <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-              Nome do Treino
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Título do Treino
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ex: Treino Pirâmide, Tiros de 40s/50s"
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
+              placeholder="Ex: Treino Pirâmide, Tiros 40s/50s"
+              className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-white focus:outline-none focus:border-emerald-500 transition-colors"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-              Objetivo / Notas (Opcional)
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              Objetivo ou Observações
             </label>
             <input
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Ex: Foco em VO2 Máx com tiros curtos e recuperação ativa"
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-all"
+              placeholder="Ex: Foco em potência aeróbica e recuperação ativa"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors"
             />
           </div>
         </div>
 
-        {/* REAL-TIME DASHBOARD COMPONENT */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-              <Info className="w-3.5 h-3.5 text-emerald-400" />
-              Dashboard em Tempo Real
-            </span>
-            <span className="text-[11px] text-emerald-400 font-medium">
-              Atualiza automaticamente
-            </span>
-          </div>
-          <DashboardCard dashboard={dashboard} />
+        {/* Real-Time Dashboard */}
+        <DashboardCard dashboard={dashboard} />
+
+        {/* Quick Add Bar */}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <span className="text-xs text-slate-400 font-medium mr-1">Adicionar rápido:</span>
+          <button
+            onClick={() => addIntervalBlock(4, 40, 50)}
+            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-rose-400 transition-all active:scale-95 cursor-pointer"
+          >
+            + Bloco 4x (40s / 50s)
+          </button>
+          <button
+            onClick={() => addSingleStep('warmup', 300)}
+            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-medium text-slate-300 transition-all active:scale-95 cursor-pointer"
+          >
+            + Aquecimento 5m
+          </button>
+          <button
+            onClick={() => addSingleStep('high_intensity', 60)}
+            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-medium text-slate-300 transition-all active:scale-95 cursor-pointer"
+          >
+            + Tiro 1 min
+          </button>
+          <button
+            onClick={() => addSingleStep('walk', 180)}
+            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-medium text-slate-300 transition-all active:scale-95 cursor-pointer"
+          >
+            + Caminhada 3m
+          </button>
         </div>
 
-        {/* Quick Add Presets Bar */}
-        <div className="bg-slate-900/50 border border-slate-800/60 rounded-2xl p-3">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-2">
-            Adicionar Rápido ao Treino:
-          </span>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => addIntervalBlock(4, 40, 50)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-medium transition-all"
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>Bloco 4x (40s / 50s)</span>
-            </button>
-            <button
-              onClick={() => addSingleStep('warmup', 300)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-medium transition-all"
-            >
-              <Flame className="w-3.5 h-3.5" />
-              <span>+ Aquecimento 5m</span>
-            </button>
-            <button
-              onClick={() => addSingleStep('high_intensity', 60)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-medium transition-all"
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>+ Tiro 1 min</span>
-            </button>
-            <button
-              onClick={() => addSingleStep('low_intensity', 60)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-medium transition-all"
-            >
-              <Activity className="w-3.5 h-3.5" />
-              <span>+ Trote 1 min</span>
-            </button>
-            <button
-              onClick={() => addSingleStep('walk', 180)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-medium transition-all"
-            >
-              <Footprints className="w-3.5 h-3.5" />
-              <span>+ Caminhada 3m</span>
-            </button>
-            <button
-              onClick={() => addSingleStep('rest', 60)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium transition-all"
-            >
-              <Coffee className="w-3.5 h-3.5" />
-              <span>+ Descanso 1m</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Sequential Workout Items List */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Sequência de Fases ({items.length} itens montados)
-            </span>
+        {/* Steps List */}
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+            <span className="font-medium">Fases em Sequência ({items.length})</span>
           </div>
 
-          {items.length === 0 ? (
-            <div className="text-center py-12 px-4 border-2 border-dashed border-slate-800 rounded-2xl bg-slate-900/30">
-              <Activity className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-              <h3 className="text-sm font-semibold text-slate-300">Nenhuma etapa adicionada</h3>
-              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                Adicione etapas individuais ou blocos com repetições usando os botões abaixo para montar seu treino.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {items.map((item, itemIdx) => {
-                if (item.type === 'single') {
-                  const cfg = PHASE_CONFIGS[item.step.phase];
-                  return (
-                    <div
-                      key={item.step.id}
-                      className="bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 transition-all shadow-sm"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        {/* Phase Selector & Info */}
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <span className="text-xs font-mono font-bold text-slate-500 w-5">
-                            #{itemIdx + 1}
-                          </span>
-                          
-                          <div className={`p-2 rounded-xl bg-gradient-to-br ${cfg.colorBg} text-white shadow-md`}>
-                            {getPhaseIcon(item.step.phase, 'w-5 h-5')}
-                          </div>
+          {items.map((item, itemIdx) => {
+            if (item.type === 'single') {
+              const cfg = PHASE_CONFIGS[item.step.phase];
+              return (
+                <div
+                  key={item.step.id}
+                  className="bg-slate-900 border border-slate-800 rounded-2xl p-4 transition-all"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    {/* Phase Selector */}
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <span className="text-xs font-mono font-bold text-slate-500 w-5">
+                        {itemIdx + 1}.
+                      </span>
 
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <select
-                                value={item.step.phase}
-                                onChange={(e) => updateSingleStepPhase(itemIdx, e.target.value as PhaseType)}
-                                className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-bold text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
-                              >
-                                {Object.values(PHASE_CONFIGS).map((p) => (
-                                  <option key={p.id} value={p.id}>
-                                    {p.label}
-                                  </option>
-                                ))}
-                              </select>
-                              <span className="text-[11px] text-slate-400 hidden sm:inline">
-                                ({cfg.description})
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Duration Controls */}
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl px-2 py-1">
-                            <button
-                              onClick={() => updateSingleStepDuration(itemIdx, -10)}
-                              className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-white rounded hover:bg-slate-800 text-xs font-bold"
-                              title="-10s"
-                            >
-                              -10
-                            </button>
-                            <span className="px-2 font-mono font-bold text-sm text-emerald-400 min-w-[54px] text-center">
-                              {formatTimeDisplay(item.step.durationSeconds)}
-                            </span>
-                            <button
-                              onClick={() => updateSingleStepDuration(itemIdx, 10)}
-                              className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-white rounded hover:bg-slate-800 text-xs font-bold"
-                              title="+10s"
-                            >
-                              +10
-                            </button>
-                          </div>
-
-                          {/* Quick Add presets */}
-                          <div className="hidden sm:flex gap-1">
-                            <button
-                              onClick={() => updateSingleStepDuration(itemIdx, 30)}
-                              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold text-slate-300 rounded-lg"
-                            >
-                              +30s
-                            </button>
-                            <button
-                              onClick={() => updateSingleStepDuration(itemIdx, 60)}
-                              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold text-slate-300 rounded-lg"
-                            >
-                              +1m
-                            </button>
-                          </div>
-
-                          {/* Action icons */}
-                          <div className="flex items-center gap-0.5 border-l border-slate-800 pl-2">
-                            <button
-                              onClick={() => moveItem(itemIdx, 'up')}
-                              disabled={itemIdx === 0}
-                              className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30 rounded hover:bg-slate-800"
-                              title="Mover para cima"
-                            >
-                              <ChevronUp className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => moveItem(itemIdx, 'down')}
-                              disabled={itemIdx === items.length - 1}
-                              className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30 rounded hover:bg-slate-800"
-                              title="Mover para baixo"
-                            >
-                              <ChevronDown className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => duplicateItem(itemIdx)}
-                              className="p-1.5 text-slate-400 hover:text-blue-400 rounded hover:bg-slate-800"
-                              title="Duplicar etapa"
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => deleteItem(itemIdx)}
-                              className="p-1.5 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-800"
-                              title="Excluir"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
+                      <div className="flex-1 min-w-0">
+                        <select
+                          value={item.step.phase}
+                          onChange={(e) => updateSingleStepPhase(itemIdx, e.target.value as PhaseType)}
+                          className="bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                        >
+                          {Object.values(PHASE_CONFIGS).map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </div>
-                  );
-                } else {
-                  // Workout Block (e.g. 4x [Tiro 40s + Trote 50s])
-                  const block = item.block;
-                  return (
-                    <div
-                      key={block.id}
-                      className="bg-slate-900/90 border-2 border-indigo-500/40 rounded-2xl p-4 shadow-lg transition-all"
-                    >
-                      {/* Block Header */}
-                      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 mb-3 border-b border-indigo-500/20">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono font-bold text-slate-500 w-5">
-                            #{itemIdx + 1}
-                          </span>
-                          <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-300">
-                            <Repeat className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <span className="text-sm font-bold text-indigo-200">
-                              {block.name || 'Bloco Intervalado'}
-                            </span>
-                            <span className="text-[11px] text-slate-400 ml-2">
-                              (Executa {block.repetitions} vezes em sequência)
-                            </span>
-                          </div>
-                        </div>
 
-                        {/* Repetition Stepper */}
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center bg-indigo-950/80 border border-indigo-500/40 rounded-xl px-2 py-1">
-                            <span className="text-xs font-semibold text-indigo-300 mr-2">Repetições:</span>
-                            <button
-                              onClick={() => updateBlockRepetitions(itemIdx, -1)}
-                              className="w-6 h-6 flex items-center justify-center text-indigo-300 hover:text-white rounded hover:bg-indigo-900 text-sm font-bold"
-                            >
-                              -
-                            </button>
-                            <span className="px-2 font-bold text-sm text-white min-w-[28px] text-center">
-                              {block.repetitions}x
-                            </span>
-                            <button
-                              onClick={() => updateBlockRepetitions(itemIdx, 1)}
-                              className="w-6 h-6 flex items-center justify-center text-indigo-300 hover:text-white rounded hover:bg-indigo-900 text-sm font-bold"
-                            >
-                              +
-                            </button>
-                          </div>
-
-                          {/* Quick Reps */}
-                          <div className="hidden sm:flex gap-1">
-                            {[3, 4, 6, 8].map((r) => (
-                              <button
-                                key={r}
-                                onClick={() => {
-                                  const copy = [...items];
-                                  const cur = copy[itemIdx];
-                                  if (cur.type === 'block') {
-                                    copy[itemIdx] = {
-                                      ...cur,
-                                      block: { ...cur.block, repetitions: r },
-                                    };
-                                    setItems(copy);
-                                  }
-                                }}
-                                className={`px-2 py-1 text-[10px] font-bold rounded-lg border transition-all ${
-                                  block.repetitions === r
-                                    ? 'bg-indigo-600 text-white border-indigo-400'
-                                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                                }`}
-                              >
-                                {r}x
-                              </button>
-                            ))}
-                          </div>
-
-                          {/* Block Actions */}
-                          <div className="flex items-center gap-0.5 border-l border-slate-800 pl-2">
-                            <button
-                              onClick={() => moveItem(itemIdx, 'up')}
-                              disabled={itemIdx === 0}
-                              className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30 rounded hover:bg-slate-800"
-                              title="Mover para cima"
-                            >
-                              <ChevronUp className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => moveItem(itemIdx, 'down')}
-                              disabled={itemIdx === items.length - 1}
-                              className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30 rounded hover:bg-slate-800"
-                              title="Mover para baixo"
-                            >
-                              <ChevronDown className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => duplicateItem(itemIdx)}
-                              className="p-1.5 text-slate-400 hover:text-blue-400 rounded hover:bg-slate-800"
-                              title="Duplicar bloco"
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => deleteItem(itemIdx)}
-                              className="p-1.5 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-800"
-                              title="Excluir bloco"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
+                    {/* Stepper with >= 44px touch ergonomics */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl">
+                        <button
+                          onClick={() => updateSingleStepDuration(itemIdx, -15)}
+                          className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-white rounded-l-xl hover:bg-slate-800 transition-colors cursor-pointer"
+                          title="-15s"
+                        >
+                          <Minus className="w-4 h-4" />
+                        </button>
+                        <span className="px-3 font-mono font-bold text-sm text-white min-w-[60px] text-center tabular-nums">
+                          {formatTimeDisplay(item.step.durationSeconds)}
+                        </span>
+                        <button
+                          onClick={() => updateSingleStepDuration(itemIdx, 15)}
+                          className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-white rounded-r-xl hover:bg-slate-800 transition-colors cursor-pointer"
+                          title="+15s"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
                       </div>
 
-                      {/* Steps inside the block */}
-                      <div className="space-y-2 pl-3 sm:pl-6 border-l-2 border-indigo-500/30">
-                        {block.steps.map((subStep, stepIdx) => {
-                          const subCfg = PHASE_CONFIGS[subStep.phase];
-                          return (
-                            <div
-                              key={subStep.id}
-                              className="bg-slate-950/70 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-3"
-                            >
-                              <div className="flex items-center gap-2 flex-1 min-w-0">
-                                <div className={`p-1.5 rounded-lg bg-gradient-to-br ${subCfg.colorBg} text-white`}>
-                                  {getPhaseIcon(subStep.phase, 'w-3.5 h-3.5')}
-                                </div>
-                                <select
-                                  value={subStep.phase}
-                                  onChange={(e) =>
-                                    updateBlockStepPhase(itemIdx, stepIdx, e.target.value as PhaseType)
-                                  }
-                                  className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs font-bold text-white focus:outline-none cursor-pointer"
-                                >
-                                  {Object.values(PHASE_CONFIGS).map((p) => (
-                                    <option key={p.id} value={p.id}>
-                                      {p.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg px-2 py-1">
-                                  <button
-                                    onClick={() => updateBlockStepDuration(itemIdx, stepIdx, -5)}
-                                    className="w-5 h-5 flex items-center justify-center text-slate-400 hover:text-white rounded hover:bg-slate-800 text-xs font-bold"
-                                  >
-                                    -5
-                                  </button>
-                                  <span className="px-2 font-mono font-bold text-xs text-white min-w-[48px] text-center">
-                                    {formatTimeDisplay(subStep.durationSeconds)}
-                                  </span>
-                                  <button
-                                    onClick={() => updateBlockStepDuration(itemIdx, stepIdx, 5)}
-                                    className="w-5 h-5 flex items-center justify-center text-slate-400 hover:text-white rounded hover:bg-slate-800 text-xs font-bold"
-                                  >
-                                    +5
-                                  </button>
-                                </div>
-
-                                <button
-                                  onClick={() => removeStepFromBlock(itemIdx, stepIdx)}
-                                  className="p-1 text-slate-500 hover:text-rose-400 rounded"
-                                  title="Remover etapa do bloco"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-
-                        {/* Add step to block */}
-                        <div className="pt-1 flex gap-2">
-                          <button
-                            onClick={() => addStepToBlock(itemIdx, 'high_intensity')}
-                            className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20"
-                          >
-                            <Plus className="w-3 h-3" /> + Tiro
-                          </button>
-                          <button
-                            onClick={() => addStepToBlock(itemIdx, 'low_intensity')}
-                            className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20"
-                          >
-                            <Plus className="w-3 h-3" /> + Trote
-                          </button>
-                        </div>
+                      {/* Reorder & Delete */}
+                      <div className="flex items-center gap-0.5 pl-1">
+                        <button
+                          onClick={() => moveItem(itemIdx, 'up')}
+                          disabled={itemIdx === 0}
+                          className="p-2 text-slate-400 hover:text-white disabled:opacity-20 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                          title="Mover acima"
+                        >
+                          <ChevronUp className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => moveItem(itemIdx, 'down')}
+                          disabled={itemIdx === items.length - 1}
+                          className="p-2 text-slate-400 hover:text-white disabled:opacity-20 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                          title="Mover abaixo"
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => duplicateItem(itemIdx)}
+                          className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                          title="Duplicar"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteItem(itemIdx)}
+                          className="p-2 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
-                  );
-                }
-              })}
-            </div>
-          )}
+                  </div>
+                </div>
+              );
+            } else {
+              // Block Grouping
+              const block = item.block;
+              return (
+                <div
+                  key={block.id}
+                  className="bg-slate-900 border-2 border-slate-700/80 rounded-2xl p-4 sm:p-5 space-y-3"
+                >
+                  {/* Block Header */}
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <Repeat className="w-4 h-4 text-emerald-400" />
+                      <span className="text-sm font-bold text-white">
+                        Série Intervalada
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl">
+                        <button
+                          onClick={() => updateBlockRepetitions(itemIdx, -1)}
+                          className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"
+                          title="Menos repetições"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="px-2.5 font-bold text-xs text-white tabular-nums">
+                          {block.repetitions}x
+                        </span>
+                        <button
+                          onClick={() => updateBlockRepetitions(itemIdx, 1)}
+                          className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"
+                          title="Mais repetições"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Block Level Controls */}
+                      <button
+                        onClick={() => moveItem(itemIdx, 'up')}
+                        disabled={itemIdx === 0}
+                        className="p-2 text-slate-400 hover:text-white disabled:opacity-20 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="Mover bloco para cima"
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        onClick={() => moveItem(itemIdx, 'down')}
+                        disabled={itemIdx === items.length - 1}
+                        className="p-2 text-slate-400 hover:text-white disabled:opacity-20 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="Mover bloco para baixo"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        onClick={() => duplicateItem(itemIdx)}
+                        className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="Duplicar série inteira"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        onClick={() => deleteItem(itemIdx)}
+                        className="p-2 text-slate-400 hover:text-rose-400 rounded-lg cursor-pointer"
+                        title="Excluir bloco"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sub-steps */}
+                  <div className="space-y-2 pl-3 border-l-2 border-slate-800">
+                    {block.steps.map((subStep, subIdx) => (
+                      <div
+                        key={subStep.id}
+                        className="bg-slate-950 rounded-xl p-3 flex items-center justify-between gap-3 border border-slate-800/80"
+                      >
+                        <select
+                          value={subStep.phase}
+                          onChange={(e) =>
+                            updateBlockStepPhase(itemIdx, subIdx, e.target.value as PhaseType)
+                          }
+                          className="bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs font-bold text-white focus:outline-none cursor-pointer"
+                        >
+                          {Object.values(PHASE_CONFIGS).map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg">
+                            <button
+                              onClick={() => updateBlockStepDuration(itemIdx, subIdx, -5)}
+                              className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <span className="px-2 font-mono font-bold text-xs text-white tabular-nums">
+                              {formatTimeDisplay(subStep.durationSeconds)}
+                            </span>
+                            <button
+                              onClick={() => updateBlockStepDuration(itemIdx, subIdx, 5)}
+                              className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          {block.steps.length > 1 && (
+                            <button
+                              onClick={() => removeStepFromBlock(itemIdx, subIdx)}
+                              className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg cursor-pointer"
+                              title="Remover etapa desta série"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+
+                    <button
+                      onClick={() => addStepToBlock(itemIdx)}
+                      className="text-[11px] font-semibold text-emerald-400 hover:underline flex items-center gap-1 pt-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Adicionar etapa nesta série</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+          })}
         </div>
 
-        {/* Bottom Add Buttons */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+        {/* Bottom Add Actions */}
+        <div className="grid grid-cols-2 gap-3 pt-2">
           <button
             onClick={() => addSingleStep('high_intensity', 45)}
-            className="flex items-center justify-center gap-2 p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 font-semibold text-xs hover:bg-slate-850 transition-all shadow-sm"
+            className="flex items-center justify-center gap-2 p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 font-semibold text-xs transition-all active:scale-95 cursor-pointer"
           >
             <Plus className="w-4 h-4 text-emerald-400" />
-            <span>Adicionar Etapa Avulsa</span>
+            <span>Adicionar Fase</span>
           </button>
 
           <button
             onClick={() => addIntervalBlock(4, 40, 50)}
-            className="flex items-center justify-center gap-2 p-3.5 rounded-2xl bg-indigo-950/40 border border-indigo-500/40 hover:border-indigo-400 text-indigo-200 font-bold text-xs hover:bg-indigo-900/50 transition-all shadow-sm"
+            className="flex items-center justify-center gap-2 p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 font-semibold text-xs transition-all active:scale-95 cursor-pointer"
           >
-            <Repeat className="w-4 h-4 text-indigo-400" />
-            <span>Adicionar Bloco com Repetições (4x)</span>
+            <Repeat className="w-4 h-4 text-emerald-400" />
+            <span>Adicionar Série (4x)</span>
           </button>
         </div>
       </div>

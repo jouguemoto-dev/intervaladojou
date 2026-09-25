@@ -23,16 +23,22 @@ export const TestOnPhoneModal: React.FC<TestOnPhoneModalProps> = ({ isOpen, onCl
   const [activeTab, setActiveTab] = useState<'instant' | 'android_studio'>('instant');
   const [copied, setCopied] = useState(false);
 
-  // Production shared URL of this application
-  const appUrl =
+  // Current active live URL of this application
+  const liveDevUrl =
     typeof window !== 'undefined'
-      ? window.location.href.replace('-dev-', '-pre-')
-      : 'https://ais-pre-v3vfpfgc4c32ifu4jacifz-134845554511.us-west1.run.app';
+      ? window.location.origin
+      : 'https://ais-dev-v3vfpfgc4c32ifu4jacifz-134845554511.us-west1.run.app';
+
+  const sharedPreUrl = liveDevUrl.replace('-dev-', '-pre-');
+
+  // Default to the active live server URL so it never 404s
+  const [selectedUrlType, setSelectedUrlType] = useState<'dev' | 'share'>('dev');
+  const activeUrl = selectedUrlType === 'dev' ? liveDevUrl : sharedPreUrl;
 
   if (!isOpen) return null;
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(appUrl);
+    navigator.clipboard.writeText(activeUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -94,7 +100,7 @@ export const TestOnPhoneModal: React.FC<TestOnPhoneModalProps> = ({ isOpen, onCl
               {/* QR Code */}
               <div className="p-3 bg-white rounded-2xl shadow-xl flex-shrink-0 flex items-center justify-center">
                 <QRCodeSVG
-                  value={appUrl}
+                  value={activeUrl}
                   size={150}
                   level="H"
                   includeMargin={false}
@@ -102,33 +108,51 @@ export const TestOnPhoneModal: React.FC<TestOnPhoneModalProps> = ({ isOpen, onCl
               </div>
 
               {/* Instructions */}
-              <div className="space-y-2">
-                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  Mais Rápido • Funciona Agora
-                </span>
+              <div className="space-y-2.5">
+                <div className="flex flex-wrap items-center gap-1.5 justify-center sm:justify-start">
+                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Servidor Ativo Agora
+                  </span>
+                </div>
                 <h4 className="text-sm font-bold text-white">
                   Aponte a câmera do seu celular para o QR Code
                 </h4>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  O app abrirá no navegador do celular com <strong>GPS real</strong>, <strong>bips sonoros</strong> e <strong>voz em português</strong> funcionando perfeitamente.
+                  O app abrirá no navegador do celular com <strong>GPS real</strong>, <strong>bips sonoros</strong> e <strong>voz em português</strong> funcionando imediatamente.
                 </p>
+
+                {/* Display Current URL */}
+                <div className="p-2 bg-slate-900 border border-slate-800 rounded-xl text-[11px] font-mono text-emerald-400 break-all select-all">
+                  {activeUrl}
+                </div>
+
                 <div className="pt-1 flex flex-wrap gap-2 justify-center sm:justify-start">
                   <button
                     onClick={handleCopyLink}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-all active:scale-95"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all active:scale-95 shadow-sm"
                   >
                     {copied ? (
                       <>
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        <span className="text-emerald-400">Link Copiado!</span>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Link Copiado!</span>
                       </>
                     ) : (
                       <>
                         <Copy className="w-3.5 h-3.5" />
-                        <span>Copiar Link Direto</span>
+                        <span>Copiar Link do App</span>
                       </>
                     )}
                   </button>
+
+                  <a
+                    href={activeUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition-all"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Abrir em Nova Aba</span>
+                  </a>
                 </div>
               </div>
             </div>

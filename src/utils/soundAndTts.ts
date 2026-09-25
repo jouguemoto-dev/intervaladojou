@@ -6,6 +6,7 @@ class AudioAlertEngine {
   private audioCtx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private dynamicsCompressor: DynamicsCompressorNode | null = null;
+  private silentAudioElement: HTMLAudioElement | null = null;
 
   private ttsMuted = false;
   private beepsMuted = false;
@@ -22,6 +23,60 @@ class AudioAlertEngine {
           this.initVoices();
         };
       }
+    }
+  }
+
+  /**
+   * Starts a silent audio loop in the background to prevent Chrome/Safari/Android
+   * from suspending the tab when the user locks the screen or switches apps.
+   */
+  public startBackgroundKeepAlive(title = 'RitmoInterval Treino Ativo') {
+    if (typeof window === 'undefined') return;
+
+    try {
+      if (!this.silentAudioElement) {
+        // Ultra-compact silent WAV base64 (44 bytes standard header + silent PCM loop)
+        const silentWavBase64 =
+          'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAC7u7u7';
+        const audio = new Audio(silentWavBase64);
+        audio.loop = true;
+        audio.volume = 0.01;
+        this.silentAudioElement = audio;
+      }
+
+      this.silentAudioElement.play().catch(() => {
+        // Ignored if user hasn't interacted yet
+      });
+
+      // Integrate with Android / iOS Notification Lockscreen Controls (MediaSession API)
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: title,
+          artist: 'RitmoInterval - Corrida e HIIT',
+          album: 'Treino Intervalado em Execução',
+          artwork: [
+            { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+            { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          ],
+        });
+        navigator.mediaSession.playbackState = 'playing';
+      }
+    } catch (err) {
+      console.warn('Background keep-alive setup error:', err);
+    }
+  }
+
+  public stopBackgroundKeepAlive() {
+    if (this.silentAudioElement) {
+      try {
+        this.silentAudioElement.pause();
+        this.silentAudioElement.currentTime = 0;
+      } catch {
+        // Ignore
+      }
+    }
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'none';
     }
   }
 
@@ -402,6 +457,16 @@ class AudioAlertEngine {
 
     try {
       window.speechSynthesis.cancel();
+
+      // Dynamically resolve pt-BR voice if it loaded asynchronously
+      if (!this.selectedVoice) {
+        const voices = window.speechSynthesis.getVoices();
+        const ptBrVoice = voices.find((v) => v.lang === 'pt-BR' || v.lang.startsWith('pt'));
+        if (ptBrVoice) {
+          this.selectedVoice = ptBrVoice;
+        }
+      }
+
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 1.05;
       utterance.pitch = 1.05;
@@ -419,6 +484,7 @@ class AudioAlertEngine {
   }
 
   public stopAll() {
+    this.stopBackgroundKeepAlive();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }

@@ -3,44 +3,42 @@ import { Workout } from './types/workout';
 import {
   loadWorkoutsFromStorage,
   saveSingleWorkout,
+  saveWorkoutsToStorage,
   deleteWorkoutById,
   duplicateWorkoutById,
   resetToDefaults,
 } from './services/storage';
+import { DEFAULT_WORKOUTS } from './data/defaultWorkouts';
 import {
   auth,
+  ensureActiveAuth,
   syncUserProfile,
   saveUserWorkoutToCloud,
   deleteUserWorkoutFromCloud,
+  markUserWorkoutsSeeded,
   AthleteProfile,
   db,
 } from './services/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { WorkoutList } from './components/WorkoutList';
 import { WorkoutBuilder } from './components/WorkoutBuilder';
 import { WorkoutRunner } from './components/WorkoutRunner';
 import { AndroidCodeHub } from './components/AndroidCodeHub';
 import { AndroidFrame } from './components/AndroidFrame';
 import { UserAccountModal } from './components/UserAccountModal';
-import { TestOnPhoneModal } from './components/TestOnPhoneModal';
+import { InstallHelpModal } from './components/InstallHelpModal';
 import { audioAlerts } from './utils/soundAndTts';
 import {
   Activity,
-  Code2,
-  PlusCircle,
-  Zap,
   User as UserIcon,
-  Cloud,
-  Sparkles,
-  QrCode,
-  Smartphone,
+  Download,
 } from 'lucide-react';
 
 type MainTab = 'workouts' | 'builder' | 'code';
 
 export default function App() {
-  const [workouts, setWorkouts] = useState<Workout[]>([]);
+  const [workouts, setWorkouts] = useState<Workout[]>(() => loadWorkoutsFromStorage());
   const [activeTab, setActiveTab] = useState<MainTab>('workouts');
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
   const [runningWorkout, setRunningWorkout] = useState<Workout | null>(null);
@@ -49,15 +47,28 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AthleteProfile | null>(null);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
-  const [isTestPhoneModalOpen, setIsTestPhoneModalOpen] = useState(false);
+  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
-  // Initialize workouts from local storage first
+  // Catch PWA beforeinstallprompt
   useEffect(() => {
-    const list = loadWorkoutsFromStorage();
-    setWorkouts(list);
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
   }, []);
 
-  // Listen to Firebase Auth state
+  // 1. Automatically activate the cloud database on initial mount
+  useEffect(() => {
+    ensureActiveAuth().catch((err) => {
+      console.warn('Auto anonymous auth fallback:', err);
+    });
+  }, []);
+
+  // 2. Listen to authentication state
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
@@ -82,35 +93,51 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Real-time Cloud Firestore sync for individual user workouts
+  // 3. Real-time synchronization with Firestore individual database
   useEffect(() => {
     if (!currentUser) return;
 
     try {
       const userWorkoutsRef = collection(db, 'users', currentUser.uid, 'workouts');
-      const unsubscribe = onSnapshot(userWorkoutsRef, (snapshot) => {
+      const unsubscribe = onSnapshot(userWorkoutsRef, async (snapshot) => {
         if (!snapshot.empty) {
           const cloudWorkouts: Workout[] = [];
           snapshot.forEach((doc) => {
             cloudWorkouts.push(doc.data() as Workout);
           });
+          // Sort by creation date
+          cloudWorkouts.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
           setWorkouts(cloudWorkouts);
+          saveWorkoutsToStorage(cloudWorkouts);
         } else {
-          // If user's cloud database is brand new, seed with defaults to their account
-          const initial = loadWorkoutsFromStorage();
-          initial.forEach((w) => {
-            saveUserWorkoutToCloud(currentUser.uid, w).catch(() => {});
-          });
+          // Check if this account has already been seeded in the past
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          const userData = userDoc.data() as AthleteProfile | undefined;
+
+          if (userData?.workoutsSeeded) {
+            // User intentionally deleted all workouts! Keep it empty, DO NOT reseed!
+            setWorkouts([]);
+            saveWorkoutsToStorage([]);
+          } else {
+            // First time this athlete connects to the database: seed default workouts
+            const initial = loadWorkoutsFromStorage();
+            const toSeed = initial.length > 0 ? initial : DEFAULT_WORKOUTS;
+            for (const w of toSeed) {
+              await saveUserWorkoutToCloud(currentUser.uid, w);
+            }
+            await markUserWorkoutsSeeded(currentUser.uid);
+            setWorkouts(toSeed);
+            saveWorkoutsToStorage(toSeed);
+          }
         }
       });
 
       return () => unsubscribe();
     } catch (err) {
-      console.warn('Firestore real-time sync offline or pending:', err);
+      console.warn('Firestore sync warning:', err);
     }
   }, [currentUser]);
 
-  // Unlock audio on initial user interaction
   const handleUserInteraction = () => {
     audioAlerts.unlockAudio();
   };
@@ -132,52 +159,66 @@ export default function App() {
     setRunningWorkout(workout);
   };
 
-  const handleSaveWorkout = (savedWorkout: Workout) => {
+  const handleSaveWorkout = async (savedWorkout: Workout) => {
     handleUserInteraction();
     const updated = saveSingleWorkout(savedWorkout);
     setWorkouts(updated);
 
-    // Save to user's individual cloud database if logged in
     if (currentUser) {
-      saveUserWorkoutToCloud(currentUser.uid, savedWorkout).catch(console.error);
+      try {
+        await saveUserWorkoutToCloud(currentUser.uid, savedWorkout);
+      } catch (err) {
+        console.error('Failed to save workout to cloud:', err);
+      }
     }
 
     setActiveTab('workouts');
   };
 
-  const handleDuplicateWorkout = (id: string) => {
+  const handleDuplicateWorkout = async (id: string) => {
     const updated = duplicateWorkoutById(id);
     setWorkouts(updated);
 
     if (currentUser) {
       const cloned = updated[0];
       if (cloned) {
-        saveUserWorkoutToCloud(currentUser.uid, cloned).catch(console.error);
+        try {
+          await saveUserWorkoutToCloud(currentUser.uid, cloned);
+        } catch (err) {
+          console.error('Failed to duplicate workout in cloud:', err);
+        }
       }
     }
   };
 
-  const handleDeleteWorkout = (id: string) => {
+  const handleDeleteWorkout = async (id: string) => {
+    // 1. Immediately delete from local storage
     const updated = deleteWorkoutById(id);
     setWorkouts(updated);
 
+    // 2. Immediately delete from Firestore cloud database
     if (currentUser) {
-      deleteUserWorkoutFromCloud(currentUser.uid, id).catch(console.error);
+      try {
+        await deleteUserWorkoutFromCloud(currentUser.uid, id);
+        // Ensure this account remains marked as seeded so it never re-injects deleted workouts
+        await markUserWorkoutsSeeded(currentUser.uid);
+      } catch (err) {
+        console.error('Failed to delete workout from cloud:', err);
+      }
     }
   };
 
-  const handleResetDefaults = () => {
+  const handleResetDefaults = async () => {
     const defaults = resetToDefaults();
     setWorkouts(defaults);
 
     if (currentUser) {
-      defaults.forEach((w) => {
-        saveUserWorkoutToCloud(currentUser.uid, w).catch(() => {});
-      });
+      for (const w of defaults) {
+        await saveUserWorkoutToCloud(currentUser.uid, w);
+      }
     }
   };
 
-  // If a workout is currently running, show the runner screen
   if (runningWorkout) {
     return (
       <AndroidFrame>
@@ -196,95 +237,36 @@ export default function App() {
         className="flex flex-col h-full bg-slate-950 text-slate-100 overflow-hidden"
         onClick={handleUserInteraction}
       >
-        {/* Top App Bar Navigation */}
-        <div className="bg-slate-900 border-b border-slate-800 px-3 py-2 flex items-center justify-between flex-shrink-0 gap-2">
-          {/* Logo & Brand */}
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-rose-500 to-emerald-500 p-0.5 shadow-md flex items-center justify-center flex-shrink-0">
-              <Zap className="w-4 h-4 text-white fill-current" />
-            </div>
-            <div className="min-w-0">
-              <span className="text-sm font-black text-white tracking-tight truncate block">
-                Ritmo<span className="text-emerald-400">Interval</span>
-              </span>
-            </div>
+        {/* Top App Bar */}
+        <header className="bg-slate-900/90 backdrop-blur-md border-b border-slate-800/80 px-4 py-3 flex items-center justify-between flex-shrink-0 z-20">
+          <div className="flex items-center gap-2.5">
+            <span className="text-base font-black text-white tracking-tight">
+              Ritmo<span className="text-emerald-400">Interval</span>
+            </span>
           </div>
 
-          {/* Navigation Tabs */}
-          <div className="flex items-center bg-slate-950 rounded-xl p-1 border border-slate-800 text-xs">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setActiveTab('workouts')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                activeTab === 'workouts'
-                  ? 'bg-slate-800 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              onClick={() => setIsInstallModalOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
+              title="Instalar e Usar no Celular"
             >
-              <Activity className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Treinos</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setEditingWorkout(null);
-                setActiveTab('builder');
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                activeTab === 'builder'
-                  ? 'bg-slate-800 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <PlusCircle className="w-3.5 h-3.5 text-blue-400" />
-              <span>Criador</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('code')}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                activeTab === 'code'
-                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <Code2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Kotlin</span>
-            </button>
-          </div>
-
-          {/* Actions: Phone Test & Individual Account */}
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setIsTestPhoneModalOpen(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border border-emerald-400/40 text-xs font-bold transition-all active:scale-95 shadow-md shadow-emerald-950/40 cursor-pointer"
-              title="Testar agora no seu celular com QR Code"
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">No Celular</span>
+              <Download className="w-3.5 h-3.5" />
+              <span>Instalar</span>
             </button>
 
             <button
               onClick={() => setIsAccountModalOpen(true)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all active:scale-95 cursor-pointer ${
-                currentUser
-                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
-                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'
-              }`}
-              title="Conta individual e preferências personalizadas"
+              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer"
+              title="Conta e Perfil"
             >
-              <UserIcon className="w-3.5 h-3.5" />
-              <span className="max-w-[70px] sm:max-w-[100px] truncate hidden xs:inline">
-                {currentUser
-                  ? profile?.displayName || 'Minha Conta'
-                  : 'Conta'}
-              </span>
-              {currentUser && <Cloud className="w-3 h-3 text-emerald-400 ml-0.5" />}
+              <UserIcon className="w-4 h-4" />
             </button>
           </div>
-        </div>
+        </header>
 
-        {/* Tab Body */}
-        <div className="flex-1 overflow-hidden relative">
+        {/* Body Viewport */}
+        <main className="flex-1 overflow-hidden relative pb-16">
           {activeTab === 'workouts' && (
             <WorkoutList
               workouts={workouts}
@@ -306,10 +288,33 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'code' && <AndroidCodeHub />}
-        </div>
+          {activeTab === 'code' && <AndroidCodeHub onBack={() => setActiveTab('workouts')} />}
+        </main>
 
-        {/* User Individual Account Modal */}
+        {/* Bottom Thumb-Zone Navigation Bar */}
+        <nav className="absolute bottom-0 left-0 right-0 z-30 bg-slate-900/95 backdrop-blur-md border-t border-slate-800/90 h-16 flex items-center justify-around px-8">
+          <button
+            onClick={() => setActiveTab('workouts')}
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-4 transition-colors cursor-pointer ${
+              activeTab === 'workouts' ? 'text-emerald-400' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Activity className="w-5 h-5" />
+            <span className="text-[11px] font-semibold">Treinos</span>
+          </button>
+
+          <button
+            onClick={() => setIsAccountModalOpen(true)}
+            className="flex flex-col items-center justify-center gap-1 py-1 px-4 text-slate-400 hover:text-white transition-colors cursor-pointer"
+          >
+            <UserIcon className="w-5 h-5" />
+            <span className="text-[11px] font-semibold truncate max-w-[80px]">
+              {currentUser ? profile?.displayName || 'Conta' : 'Conta'}
+            </span>
+          </button>
+        </nav>
+
+        {/* Modals */}
         <UserAccountModal
           isOpen={isAccountModalOpen}
           onClose={() => setIsAccountModalOpen(false)}
@@ -318,10 +323,13 @@ export default function App() {
           onProfileUpdated={(updated) => setProfile(updated)}
         />
 
-        {/* Test on Phone Modal (QR Code & Android Studio Guide) */}
-        <TestOnPhoneModal
-          isOpen={isTestPhoneModalOpen}
-          onClose={() => setIsTestPhoneModalOpen(false)}
+        <InstallHelpModal
+          isOpen={isInstallModalOpen}
+          onClose={() => setIsInstallModalOpen(false)}
+          deferredPrompt={deferredPrompt}
+          onInstalled={() => {
+            setDeferredPrompt(null);
+          }}
         />
       </div>
     </AndroidFrame>

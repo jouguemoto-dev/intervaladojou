@@ -1,28 +1,39 @@
 import { Workout } from '../types/workout';
 import { DEFAULT_WORKOUTS } from '../data/defaultWorkouts';
 
-const STORAGE_KEY = 'ritmo_interval_workouts_v1';
+const STORAGE_KEY = 'ritmo_interval_workouts_v2';
+const SEEDED_KEY = 'ritmo_interval_seeded_v2';
 
 export function loadWorkoutsFromStorage(): Workout[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
+    const hasBeenSeeded = localStorage.getItem(SEEDED_KEY);
+
+    // Initial first-time launch only
+    if (raw === null && !hasBeenSeeded) {
       saveWorkoutsToStorage(DEFAULT_WORKOUTS);
+      localStorage.setItem(SEEDED_KEY, 'true');
       return DEFAULT_WORKOUTS;
     }
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+
+    if (raw !== null) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        // Return array even if empty (user intentionally deleted workouts)
+        return parsed;
+      }
     }
-    return DEFAULT_WORKOUTS;
-  } catch {
-    return DEFAULT_WORKOUTS;
+    return [];
+  } catch (err) {
+    console.error('Error loading workouts from localStorage:', err);
+    return [];
   }
 }
 
 export function saveWorkoutsToStorage(workouts: Workout[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(workouts));
+    localStorage.setItem(SEEDED_KEY, 'true');
   } catch (err) {
     console.error('Failed to save workouts to localStorage', err);
   }
