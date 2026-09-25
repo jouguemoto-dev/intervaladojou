@@ -27,12 +27,10 @@ import { WorkoutRunner } from './components/WorkoutRunner';
 import { AndroidCodeHub } from './components/AndroidCodeHub';
 import { AndroidFrame } from './components/AndroidFrame';
 import { UserAccountModal } from './components/UserAccountModal';
-import { InstallHelpModal } from './components/InstallHelpModal';
 import { audioAlerts } from './utils/soundAndTts';
 import {
   Activity,
   User as UserIcon,
-  Download,
 } from 'lucide-react';
 
 type MainTab = 'workouts' | 'builder' | 'code';
@@ -47,19 +45,6 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AthleteProfile | null>(null);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
-  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-
-  // Catch PWA beforeinstallprompt
-  useEffect(() => {
-    const handleBeforeInstall = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
-    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
-  }, []);
 
   // 1. Automatically activate the cloud database on initial mount
   useEffect(() => {
@@ -247,15 +232,6 @@ export default function App() {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setIsInstallModalOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
-              title="Instalar e Usar no Celular"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Instalar</span>
-            </button>
-
-            <button
               onClick={() => setIsAccountModalOpen(true)}
               className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer"
               title="Conta e Perfil"
@@ -321,15 +297,6 @@ export default function App() {
           currentUser={currentUser}
           profile={profile}
           onProfileUpdated={(updated) => setProfile(updated)}
-        />
-
-        <InstallHelpModal
-          isOpen={isInstallModalOpen}
-          onClose={() => setIsInstallModalOpen(false)}
-          deferredPrompt={deferredPrompt}
-          onInstalled={() => {
-            setDeferredPrompt(null);
-          }}
         />
       </div>
     </AndroidFrame>
