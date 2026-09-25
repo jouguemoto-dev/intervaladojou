@@ -7,6 +7,7 @@ import {
   RunHistoryItem,
   db,
 } from '../services/firebase';
+import { loadLocalProfile, saveLocalProfile, loadLocalRunHistory } from '../services/storage';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -116,6 +117,34 @@ export const UserAccountModal: React.FC<UserAccountModalProps> = ({
 
   if (!isOpen) return null;
 
+  const formatAuthError = (err: any) => {
+    const code = err?.code || '';
+    const msg = err?.message || '';
+
+    if (code === 'auth/unauthorized-domain') {
+      return 'Domínio não autorizado pelo Firebase neste domínio do Vercel. Clique em "Continuar no Modo Local" logo abaixo para usar sem nenhuma restrição.';
+    }
+    if (code === 'auth/invalid-email') {
+      return 'E-mail inválido. Verifique o formato digitado.';
+    }
+    if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+      return 'E-mail ou senha incorretos.';
+    }
+    if (code === 'auth/email-already-in-use') {
+      return 'Este e-mail já está cadastrado. Alterne para a opção "Fazer Login".';
+    }
+    if (code === 'auth/weak-password') {
+      return 'Senha muito fraca. Digite ao menos 6 caracteres.';
+    }
+    if (code === 'auth/popup-closed-by-user') {
+      return 'Janela de login com Google foi fechada antes de concluir.';
+    }
+    if (code === 'auth/popup-blocked') {
+      return 'O navegador bloqueou a janela pop-up do Google. Permita pop-ups para este site.';
+    }
+    return msg || 'Erro ao autenticar. Tente novamente.';
+  };
+
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -145,7 +174,7 @@ export const UserAccountModal: React.FC<UserAccountModalProps> = ({
         setActiveTab('profile');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Erro ao autenticar. Verifique seus dados.');
+      setErrorMessage(formatAuthError(err));
     } finally {
       setIsLoading(false);
     }
@@ -161,7 +190,7 @@ export const UserAccountModal: React.FC<UserAccountModalProps> = ({
       setSuccessMessage('Login com Google realizado!');
       setActiveTab('profile');
     } catch (err: any) {
-      setErrorMessage(err.message || 'Falha ao conectar com o Google.');
+      setErrorMessage(formatAuthError(err));
     } finally {
       setIsLoading(false);
     }
@@ -179,10 +208,25 @@ export const UserAccountModal: React.FC<UserAccountModalProps> = ({
       setSuccessMessage('Conta rápida de convidado ativada!');
       setActiveTab('profile');
     } catch (err: any) {
-      setErrorMessage(err.message || 'Erro ao entrar como convidado.');
+      // If Firebase blocked the domain, switch automatically to Local Mode
+      const local = loadLocalProfile();
+      onProfileUpdated(local);
+      setSuccessMessage('Modo Local ativado com sucesso! Todos os treinos e áudios funcionarão perfeitamente.');
+      setTimeout(() => {
+        onClose();
+      }, 1200);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleUseLocalMode = () => {
+    const local = loadLocalProfile();
+    onProfileUpdated(local);
+    setSuccessMessage('Modo Offline/Local ativado! Você pode usar todos os treinos e sons normalmente.');
+    setTimeout(() => {
+      onClose();
+    }, 1000);
   };
 
   const handleSaveProfile = async () => {
@@ -415,6 +459,15 @@ export const UserAccountModal: React.FC<UserAccountModalProps> = ({
                 <span>Convidado</span>
               </button>
             </div>
+
+            <button
+              onClick={handleUseLocalMode}
+              type="button"
+              className="w-full py-2.5 px-3 rounded-xl bg-slate-950 hover:bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-inner"
+            >
+              <Sparkles className="w-4 h-4 text-emerald-400" />
+              <span>Usar Sem Cadastro (Modo Local / Vercel)</span>
+            </button>
           </div>
         )}
 

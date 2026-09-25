@@ -89,3 +89,64 @@ export function resetToDefaults(): Workout[] {
   saveWorkoutsToStorage(DEFAULT_WORKOUTS);
   return DEFAULT_WORKOUTS;
 }
+
+const LOCAL_PROFILE_KEY = 'ritmo_interval_local_profile';
+const LOCAL_RUNS_KEY = 'ritmo_interval_local_runs';
+
+export function loadLocalProfile(): any {
+  try {
+    const raw = localStorage.getItem(LOCAL_PROFILE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.error(e);
+  }
+  return {
+    userId: 'local_athlete',
+    email: 'local@atleta.com',
+    displayName: 'Atleta (Modo Local)',
+    soundProfile: 'whistle',
+    volumeBoost: 1.0,
+    ttsEnabled: true,
+    beepsEnabled: true,
+    vibrationEnabled: true,
+    weeklyGoalKm: 15,
+    runningLevel: 'intermediario',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+}
+
+export function saveLocalProfile(data: any): any {
+  try {
+    const current = loadLocalProfile();
+    const updated = { ...current, ...data, updatedAt: Date.now() };
+    localStorage.setItem(LOCAL_PROFILE_KEY, JSON.stringify(updated));
+    return updated;
+  } catch (e) {
+    console.error(e);
+    return data;
+  }
+}
+
+export function loadLocalRunHistory(): any[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_RUNS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.error(e);
+  }
+  return [];
+}
+
+export function saveLocalRun(run: any): any[] {
+  try {
+    const history = loadLocalRunHistory();
+    const updated = [run, ...history];
+    localStorage.setItem(LOCAL_RUNS_KEY, JSON.stringify(updated));
+    return updated;
+  } catch (e) {
+    console.error(e);
+    return [];
+  }
+}
+

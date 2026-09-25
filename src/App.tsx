@@ -64,7 +64,7 @@ export default function App() {
   // 1. Automatically activate the cloud database on initial mount
   useEffect(() => {
     ensureActiveAuth().catch((err) => {
-      console.warn('Auto anonymous auth fallback:', err);
+      console.warn('Firebase auth inativo ou bloqueado no domínio:', err);
     });
   }, []);
 
