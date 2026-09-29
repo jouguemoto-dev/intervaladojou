@@ -51,7 +51,8 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
   const [isPaused, setIsPaused] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [totalElapsedSeconds, setTotalElapsedSeconds] = useState(0);
-  const [isScreenLockedOn, setIsScreenLockedOn] = useState(true);
+  const [isScreenLockedOn, setIsScreenLockedOn] = useState(false);
+  const [showUnlockTip, setShowUnlockTip] = useState(false);
 
   // Audio & TTS toggles
   const [beepsEnabled, setBeepsEnabled] = useState(!audioAlerts.isBeepsMuted());
@@ -145,11 +146,14 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
   const toggleScreenLock = async () => {
     const nextState = !isScreenLockedOn;
     setIsScreenLockedOn(nextState);
-    await applyWakeLock(nextState);
+    // Keep screen awake permanently when cadeado is active
+    await applyWakeLock(true);
     if (nextState) {
-      audioAlerts.speak('Cadeado ativado: tela travada ligada');
+      audioAlerts.vibrate([100, 50, 100]);
+      audioAlerts.speak('Tela bloqueada. Toque no cadeado para liberar.');
     } else {
-      audioAlerts.speak('Cadeado liberado: tela pode apagar');
+      audioAlerts.vibrate(100);
+      audioAlerts.speak('Tela desbloqueada.');
     }
   };
 
@@ -799,6 +803,62 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
         isSimulatedGps={isSimulatedGps}
         onToggleGpsMode={handleToggleGpsMode}
       />
+
+      {/* FULL-SCREEN TOUCH LOCK SHIELD:
+          When isScreenLockedOn is true, this transparent shield blocks ALL touches to pause, next, prev, exit, settings, etc.
+          The ONLY interactable item is the floating lock button itself. */}
+      {isScreenLockedOn && (
+        <div
+          onClick={() => {
+            setShowUnlockTip(true);
+            setTimeout(() => setShowUnlockTip(false), 2500);
+          }}
+          className="fixed inset-0 z-50 bg-black/20 select-none cursor-default flex flex-col items-center justify-between p-6 pointer-events-auto"
+        >
+          {/* Top Banner Alert */}
+          <div className="w-full max-w-sm flex items-center justify-between pointer-events-none animate-fade-in">
+            <div className="flex items-center gap-2 bg-amber-500/95 text-slate-950 px-3.5 py-1.5 rounded-full font-black text-xs shadow-lg shadow-amber-500/20">
+              <Lock className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>TELA BLOQUEADA</span>
+            </div>
+
+            {showUnlockTip && (
+              <span className="text-[11px] font-bold text-amber-300 bg-slate-950/90 px-3 py-1 rounded-full border border-amber-500/40 animate-bounce">
+                Toque no cadeado abaixo para destravar
+              </span>
+            )}
+          </div>
+
+          {/* Central subtle prompt if user accidentally taps elsewhere */}
+          <div className="pointer-events-none text-center my-auto transition-opacity duration-300">
+            {showUnlockTip ? (
+              <div className="bg-slate-950/90 border border-amber-500/50 text-amber-300 px-5 py-3 rounded-2xl shadow-2xl space-y-1 animate-pulse">
+                <Lock className="w-8 h-8 text-amber-400 mx-auto" />
+                <p className="font-black text-sm">Toque no cadeado para destravar a tela</p>
+                <p className="text-xs text-slate-400">Proteção contra toques acidentais ativa</p>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Floating Dedicated Unlock Button: The ONLY clickable element on screen */}
+          <div className="w-full max-w-xs flex flex-col items-center gap-2 pb-6">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleScreenLock();
+              }}
+              className="px-6 py-3.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm flex items-center gap-3 shadow-2xl shadow-amber-500/40 transition-transform active:scale-95 cursor-pointer pointer-events-auto border-2 border-amber-300"
+              title="Toque aqui para destravar a tela"
+            >
+              <Lock className="w-5 h-5 fill-slate-950 stroke-[2.5]" />
+              <span>DESTRAVAR TELA</span>
+            </button>
+            <span className="text-[11px] font-semibold text-slate-400 text-center drop-shadow pointer-events-none">
+              Toques acidentais bloqueados • Treino e som continuam ativos
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
