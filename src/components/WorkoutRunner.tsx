@@ -8,8 +8,10 @@ import {
 } from '../types/workout';
 import { flattenWorkoutSteps, formatTimeDisplay } from '../utils/dashboardCalculator';
 import { audioAlerts } from '../utils/soundAndTts';
+import { screenWakeLock } from '../utils/screenWakeLock';
 import { GpsTrackerEngine } from '../utils/gpsTracker';
 import { AudioGpsSettingsModal } from './AudioGpsSettingsModal';
+import { useTheme } from '../context/ThemeContext';
 import confetti from 'canvas-confetti';
 import {
   Play,
@@ -40,6 +42,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
   onFinish,
   onExit,
 }) => {
+  const { themeConfig } = useTheme();
   const steps: FlattenedStep[] = useRef(flattenWorkoutSteps(workout)).current;
 
   // State
@@ -93,6 +96,21 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
 
   const announceStep = useCallback((step: FlattenedStep) => {
     audioAlerts.playPhaseChangeAlert();
+
+    // 1. Play guaranteed Web Audio voice cue (100% plays even if screen is locked)
+    if (step.phase === 'high_intensity') {
+      audioAlerts.playVoiceCue('tiro');
+    } else if (step.phase === 'low_intensity') {
+      audioAlerts.playVoiceCue('trote');
+    } else if (step.phase === 'walk') {
+      audioAlerts.playVoiceCue('caminhada');
+    } else if (step.phase === 'warmup') {
+      audioAlerts.playVoiceCue('aquecimento');
+    } else if (step.phase === 'rest') {
+      audioAlerts.playVoiceCue('descanso');
+    }
+
+    // 2. Play spoken verbal narration
     const phaseName = PHASE_CONFIGS[step.phase]?.label || 'Próxima etapa';
     let msg = '';
     if (step.blockRepetitionIndex) {
@@ -111,26 +129,16 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
     audioAlerts.speak(msg);
   }, []);
 
-  // Request or Release Screen WakeLock
+  // Request or Release Screen WakeLock (Dual Layer: Native WakeLock API + Video Fallback)
   const applyWakeLock = useCallback(async (shouldLock: boolean) => {
     try {
-      if ('wakeLock' in navigator) {
-        if (shouldLock) {
-          if (!wakeLockRef.current) {
-            wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-            wakeLockRef.current.addEventListener('release', () => {
-              wakeLockRef.current = null;
-            });
-          }
-        } else {
-          if (wakeLockRef.current) {
-            await wakeLockRef.current.release();
-            wakeLockRef.current = null;
-          }
-        }
+      if (shouldLock) {
+        await screenWakeLock.lock();
+      } else {
+        await screenWakeLock.unlock();
       }
     } catch {
-      // WakeLock unsupported or rejected
+      // Screen lock unsupported or rejected
     }
   }, []);
 
@@ -141,7 +149,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
     if (nextState) {
       audioAlerts.speak('Cadeado ativado: tela travada ligada');
     } else {
-      audioAlerts.speak('Cadeado liberado: bloqueio normal de tela');
+      audioAlerts.speak('Cadeado liberado: tela pode apagar');
     }
   };
 
@@ -194,10 +202,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       if (tracker) {
         tracker.stopTracking();
       }
-      if (wakeLockRef.current) {
-        wakeLockRef.current.release().catch(() => {});
-        wakeLockRef.current = null;
-      }
+      applyWakeLock(false);
       audioAlerts.stopAll();
     };
   }, [steps, announceStep, applyWakeLock, workout.name]);
@@ -245,11 +250,13 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
 
         // Halfway motivational announcement
         if (activeStep.durationSeconds >= 60 && prevSec === Math.floor(activeStep.durationSeconds / 2)) {
+          audioAlerts.playVoiceCue('metade');
           audioAlerts.speak('Metade concluída!');
         }
 
         // 5 seconds notice for next phase
         if (prevSec === 6 && upcomingStep) {
+          audioAlerts.playVoiceCue('atencao');
           const nextCfg = PHASE_CONFIGS[upcomingStep.phase];
           audioAlerts.speak(`Atenção: ${nextCfg.label} em 5 segundos.`);
         }
@@ -465,7 +472,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
 
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80">
               <span className="text-[11px] text-slate-400 block mb-0.5">Distância GPS</span>
-              <span className="text-2xl font-black text-emerald-400 font-mono tabular-nums">
+              <span className={`text-2xl font-black font-mono tabular-nums ${themeConfig.accentText}`}>
                 {gpsMetrics.formattedDistance}
               </span>
             </div>
@@ -505,7 +512,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
 
             <button
               onClick={onFinish}
-              className="w-full py-3.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-all shadow-md shadow-emerald-500/20 cursor-pointer"
+              className={`w-full py-3.5 px-4 rounded-xl text-xs transition-all shadow-md cursor-pointer ${themeConfig.buttonPrimary}`}
             >
               Concluir
             </button>
@@ -539,62 +546,74 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
           <span>-{formatTimeDisplay(totalRemainingSeconds)}</span>
         </div>
 
-        {/* Audio, Screen Lock & Settings Controls */}
-        <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
-          {/* Padlock button to lock screen ON / release */}
+        {/* Screen Lock, Audio & Settings Controls */}
+        <div className="flex items-center gap-1.5">
+          {/* Prominent Dedicated Padlock Button: Trava a tela para NUNCA apagar */}
           <button
             onClick={toggleScreenLock}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer flex items-center justify-center ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm ${
               isScreenLockedOn
-                ? 'text-amber-400 bg-amber-400/15'
-                : 'text-slate-600 hover:text-slate-400'
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-amber-500/10 animate-pulse'
+                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
             }`}
             title={
               isScreenLockedOn
-                ? 'Cadeado Ativo: Tela travada ligada (Não apaga). Clique para liberar.'
-                : 'Cadeado Desligado: Tela pode apagar normalmente. Clique para travar ligada.'
+                ? 'Cadeado Ativo: Tela travada ligada (Não apaga). Toque para liberar.'
+                : 'Cadeado Desligado: Tela pode apagar. Toque para travar ligada.'
             }
           >
             {isScreenLockedOn ? (
-              <Lock className="w-4 h-4 text-amber-400" />
+              <>
+                <Lock className="w-3.5 h-3.5 text-amber-400 fill-amber-400/20" />
+                <span className="text-[11px] font-black uppercase tracking-wider text-amber-300 hidden xs:inline">Tela Travada</span>
+              </>
             ) : (
-              <Unlock className="w-4 h-4 text-slate-500" />
+              <>
+                <Unlock className="w-3.5 h-3.5 text-slate-400" />
+                <span className="text-[11px] font-medium text-slate-400 hidden xs:inline">Travar Tela</span>
+              </>
             )}
           </button>
 
-          <button
-            onClick={toggleBeeps}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-              beepsEnabled ? 'text-white' : 'text-slate-600'
-            }`}
-            title="Sons de bip"
-          >
-            {beepsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-          </button>
+          <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
+            <button
+              onClick={toggleBeeps}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                beepsEnabled ? 'text-white' : 'text-slate-600'
+              }`}
+              title="Sons de bip"
+            >
+              {beepsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
 
-          <button
-            onClick={toggleTts}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-              ttsEnabled ? 'text-white' : 'text-slate-600'
-            }`}
-            title="Instruções de voz"
-          >
-            {ttsEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-          </button>
+            <button
+              onClick={toggleTts}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                ttsEnabled ? 'text-white' : 'text-slate-600'
+              }`}
+              title="Instruções de voz"
+            >
+              {ttsEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+            </button>
 
-          <button
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
-            title="Configurações de som e GPS"
-          >
-            <Sliders className="w-4 h-4" />
-          </button>
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
+              title="Configurações de som e GPS"
+            >
+              <Sliders className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
       {/* GPS Telemetry Bar */}
       <div className="w-full max-w-sm mx-auto z-10 space-y-1.5">
-        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl px-5 py-2.5 flex items-center justify-between shadow-sm">
+        <div 
+          onClick={() => setIsSettingsOpen(true)}
+          className="bg-slate-900/90 border border-slate-800 rounded-2xl px-5 py-2.5 flex items-center justify-between shadow-sm cursor-pointer hover:border-slate-700 transition-colors"
+          title="Toque para configurar sons ou alternar modo de GPS"
+        >
           <div className="text-left">
             <span className="text-[10px] text-slate-400 uppercase font-medium block">
               Distância
@@ -627,21 +646,47 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
           </div>
         </div>
 
-        {/* Quick GPS Status Banner if inside/disabled */}
-        {!isSimulatedGps && (gpsMetrics.gpsStatus === 'searching' || gpsMetrics.gpsStatus === 'denied' || gpsMetrics.gpsStatus === 'disabled') && (
-          <div className="flex items-center justify-between px-3 py-1 bg-slate-900/80 border border-slate-800/80 rounded-xl text-[10px] text-slate-400">
-            <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              <span>{gpsMetrics.gpsStatus === 'denied' ? 'GPS sem permissão' : 'Buscando satélites...'}</span>
-            </div>
+        {/* GPS Status Indicator & Quick Switch */}
+        <div className="flex items-center justify-between px-3 py-1 bg-slate-900/80 border border-slate-800/80 rounded-xl text-[10px] text-slate-400">
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                gpsMetrics.gpsStatus === 'active'
+                  ? 'bg-emerald-400'
+                  : gpsMetrics.gpsStatus === 'simulated'
+                  ? 'bg-blue-400'
+                  : gpsMetrics.gpsStatus === 'denied'
+                  ? 'bg-rose-500'
+                  : 'bg-amber-400 animate-pulse'
+              }`}
+            />
+            <span className="font-medium text-slate-300">
+              {gpsMetrics.gpsStatus === 'active'
+                ? `GPS Conectado (${gpsMetrics.accuracyMeters ? `±${Math.round(gpsMetrics.accuracyMeters)}m` : 'ativo'})`
+                : gpsMetrics.gpsStatus === 'simulated'
+                ? 'Modo Esteira / Virtual'
+                : gpsMetrics.gpsStatus === 'denied'
+                ? 'GPS Bloqueado no Navegador'
+                : 'Buscando satélites...'}
+            </span>
+          </div>
+
+          {isSimulatedGps ? (
+            <button
+              onClick={() => handleToggleGpsMode(false)}
+              className="text-cyan-400 font-bold hover:underline cursor-pointer"
+            >
+              Usar GPS Real
+            </button>
+          ) : (
             <button
               onClick={() => handleToggleGpsMode(true)}
               className="text-emerald-400 font-bold hover:underline cursor-pointer"
             >
-              Simular Esteira / Interno
+              Simular Esteira
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Center: Hero Countdown Timer & Phase */}
@@ -709,7 +754,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
           <div className="h-1 w-full bg-slate-900 rounded-full overflow-hidden">
             <div
               style={{ width: `${totalProgressPct}%` }}
-              className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+              className={`h-full ${themeConfig.accentBg} rounded-full transition-all duration-300`}
             />
           </div>
         </div>

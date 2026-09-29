@@ -25,17 +25,20 @@ import { WorkoutList } from './components/WorkoutList';
 import { WorkoutBuilder } from './components/WorkoutBuilder';
 import { WorkoutRunner } from './components/WorkoutRunner';
 import { AndroidCodeHub } from './components/AndroidCodeHub';
-import { AndroidFrame } from './components/AndroidFrame';
 import { UserAccountModal } from './components/UserAccountModal';
+import { ThemeModal } from './components/ThemeModal';
+import { useTheme } from './context/ThemeContext';
 import { audioAlerts } from './utils/soundAndTts';
 import {
   Activity,
   User as UserIcon,
+  Palette,
 } from 'lucide-react';
 
 type MainTab = 'workouts' | 'builder' | 'code';
 
 export default function App() {
+  const { themeConfig } = useTheme();
   const [workouts, setWorkouts] = useState<Workout[]>(() => loadWorkoutsFromStorage());
   const [activeTab, setActiveTab] = useState<MainTab>('workouts');
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
@@ -45,6 +48,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AthleteProfile | null>(null);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
 
   // 1. Automatically activate the cloud database on initial mount
   useEffect(() => {
@@ -206,31 +210,39 @@ export default function App() {
 
   if (runningWorkout) {
     return (
-      <AndroidFrame>
+      <div className="w-full h-screen bg-slate-950 text-white overflow-hidden font-sans">
         <WorkoutRunner
           workout={runningWorkout}
           onFinish={() => setRunningWorkout(null)}
           onExit={() => setRunningWorkout(null)}
         />
-      </AndroidFrame>
+      </div>
     );
   }
 
   return (
-    <AndroidFrame>
-      <div
-        className="flex flex-col h-full bg-slate-950 text-slate-100 overflow-hidden"
-        onClick={handleUserInteraction}
-      >
-        {/* Top App Bar */}
-        <header className="bg-slate-900/90 backdrop-blur-md border-b border-slate-800/80 px-4 py-3 flex items-center justify-between flex-shrink-0 z-20">
+    <div
+      className="flex flex-col h-screen w-full bg-slate-950 text-slate-100 overflow-hidden font-sans"
+      onClick={handleUserInteraction}
+    >
+      {/* Top App Bar */}
+      <header className="bg-slate-900/90 backdrop-blur-md border-b border-slate-800/80 px-4 py-3 flex items-center justify-between flex-shrink-0 z-20">
           <div className="flex items-center gap-2.5">
             <span className="text-base font-black text-white tracking-tight">
-              Ritmo<span className="text-emerald-400">Interval</span>
+              Ritmo<span className={themeConfig.accentText}>Interval</span>
             </span>
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsThemeModalOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold transition-all cursor-pointer"
+              title="Mudar Tema de Cores"
+            >
+              <Palette className={`w-3.5 h-3.5 ${themeConfig.accentText}`} />
+              <span className="text-[11px] font-bold text-white hidden xs:inline">{themeConfig.label}</span>
+            </button>
+
             <button
               onClick={() => setIsAccountModalOpen(true)}
               className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer"
@@ -272,11 +284,19 @@ export default function App() {
           <button
             onClick={() => setActiveTab('workouts')}
             className={`flex flex-col items-center justify-center gap-1 py-1 px-4 transition-colors cursor-pointer ${
-              activeTab === 'workouts' ? 'text-emerald-400' : 'text-slate-400 hover:text-white'
+              activeTab === 'workouts' ? themeConfig.navActive : 'text-slate-400 hover:text-white'
             }`}
           >
             <Activity className="w-5 h-5" />
             <span className="text-[11px] font-semibold">Treinos</span>
+          </button>
+
+          <button
+            onClick={() => setIsThemeModalOpen(true)}
+            className="flex flex-col items-center justify-center gap-1 py-1 px-4 text-slate-400 hover:text-white transition-colors cursor-pointer"
+          >
+            <Palette className="w-5 h-5" />
+            <span className="text-[11px] font-semibold">Temas</span>
           </button>
 
           <button
@@ -291,6 +311,11 @@ export default function App() {
         </nav>
 
         {/* Modals */}
+        <ThemeModal
+          isOpen={isThemeModalOpen}
+          onClose={() => setIsThemeModalOpen(false)}
+        />
+
         <UserAccountModal
           isOpen={isAccountModalOpen}
           onClose={() => setIsAccountModalOpen(false)}
@@ -299,6 +324,5 @@ export default function App() {
           onProfileUpdated={(updated) => setProfile(updated)}
         />
       </div>
-    </AndroidFrame>
-  );
-}
+    );
+  }

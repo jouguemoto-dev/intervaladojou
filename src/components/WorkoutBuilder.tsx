@@ -9,6 +9,7 @@ import {
 } from '../types/workout';
 import { calculateWorkoutDashboard, formatTimeDisplay } from '../utils/dashboardCalculator';
 import { DashboardCard } from './DashboardCard';
+import { useTheme } from '../context/ThemeContext';
 import {
   Plus,
   Trash2,
@@ -35,6 +36,7 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
   onStart,
   onCancel,
 }) => {
+  const { themeConfig } = useTheme();
   const [name, setName] = useState(initialWorkout?.name || 'Novo Treino Intervalado');
   const [description, setDescription] = useState(
     initialWorkout?.description || 'Treino intervalado com fases de esforço e recuperação.'
@@ -338,7 +340,7 @@ export const WorkoutBuilder: React.FC<WorkoutBuilderProps> = ({
           <button
             onClick={handleSaveAndStart}
             disabled={items.length === 0}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer ${themeConfig.buttonPrimary}`}
           >
             <Play className="w-3.5 h-3.5 fill-current" />
             <span>Iniciar</span>

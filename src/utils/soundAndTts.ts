@@ -1,12 +1,14 @@
 // Web Audio API & Web Speech API Audio Engine with Loud Profiles & Vibration
 
 import { SoundProfile } from '../types/workout';
+import { WebAudioVoiceSynthesizer } from './audioCueSynthesizer';
 
 class AudioAlertEngine {
   private audioCtx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private dynamicsCompressor: DynamicsCompressorNode | null = null;
   private silentAudioElement: HTMLAudioElement | null = null;
+  private voiceSynthesizer: WebAudioVoiceSynthesizer | null = null;
 
   private ttsMuted = false;
   private beepsMuted = false;
@@ -127,10 +129,26 @@ class AudioAlertEngine {
           this.masterGain.connect(this.dynamicsCompressor);
         }
 
+        if (!this.voiceSynthesizer && this.masterGain) {
+          this.voiceSynthesizer = new WebAudioVoiceSynthesizer(this.audioCtx, this.masterGain);
+        }
+
         this.isUnlocked = true;
       }
     } catch {
       // AudioContext unlock
+    }
+  }
+
+  /**
+   * Plays a guaranteed audio/voice cue through Web Audio API
+   * Guaranteed to work even when Android freezes SpeechSynthesis with screen locked
+   */
+  public playVoiceCue(cue: 'tiro' | 'trote' | 'caminhada' | 'descanso' | 'aquecimento' | 'atencao' | 'metade' | 'parabens') {
+    if (this.ttsMuted) return;
+    this.unlockAudio();
+    if (this.voiceSynthesizer) {
+      this.voiceSynthesizer.playSpokenCue(cue);
     }
   }
 
@@ -450,7 +468,8 @@ class AudioAlertEngine {
     setTimeout(() => this.playCountdownTick(1), 500);
     setTimeout(() => {
       this.playPhaseChangeAlert();
-      this.speak('Alerta sonoro testado com sucesso!');
+      this.playVoiceCue('tiro');
+      this.speak('Alerta sonoro e voz testados com sucesso!');
     }, 750);
   }
 

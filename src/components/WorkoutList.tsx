@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Workout } from '../types/workout';
 import { calculateWorkoutDashboard } from '../utils/dashboardCalculator';
+import { useTheme } from '../context/ThemeContext';
 import {
   Play,
   Plus,
@@ -8,7 +9,6 @@ import {
   Trash2,
   Copy,
   Clock,
-  RotateCcw,
   Zap,
 } from 'lucide-react';
 
@@ -31,6 +31,7 @@ export const WorkoutList: React.FC<WorkoutListProps> = ({
   onDeleteWorkout,
   onResetDefaults,
 }) => {
+  const { themeConfig } = useTheme();
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   return (
@@ -42,14 +43,11 @@ export const WorkoutList: React.FC<WorkoutListProps> = ({
             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
               Treinos
             </h1>
-            <p className="text-xs text-slate-400 mt-1">
-              Selecione uma sessão ou crie uma nova estrutura intervalada
-            </p>
           </div>
 
           <button
             onClick={onCreateNew}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs tracking-wide transition-all active:scale-95 shadow-md shadow-emerald-500/20 cursor-pointer"
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs tracking-wide transition-all active:scale-95 shadow-md cursor-pointer ${themeConfig.buttonPrimary}`}
           >
             <Plus className="w-4 h-4 stroke-[3]" />
             <span>Novo Treino</span>
@@ -84,13 +82,6 @@ export const WorkoutList: React.FC<WorkoutListProps> = ({
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs text-slate-400 px-1">
               <span className="font-medium tracking-wide">Biblioteca de Sessões ({workouts.length})</span>
-              <button
-                onClick={onResetDefaults}
-                className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Restaurar padrões</span>
-              </button>
             </div>
 
             {workouts.map((workout) => {
@@ -106,7 +97,7 @@ export const WorkoutList: React.FC<WorkoutListProps> = ({
                     {/* Left: Info & Distribution */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between sm:justify-start gap-3 mb-1">
-                        <h2 className="text-base sm:text-lg font-bold text-white group-hover:text-emerald-400 transition-colors truncate">
+                        <h2 className={`text-base sm:text-lg font-bold text-white transition-colors truncate hover:${themeConfig.accentText}`}>
                           {workout.name}
                         </h2>
                       </div>
@@ -212,7 +203,7 @@ export const WorkoutList: React.FC<WorkoutListProps> = ({
 
                           <button
                             onClick={() => onSelectWorkout(workout)}
-                            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs tracking-wide transition-all active:scale-95 shadow-md shadow-emerald-500/15 cursor-pointer ml-1"
+                            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs tracking-wide transition-all active:scale-95 shadow-md cursor-pointer ml-1 ${themeConfig.buttonPrimary}`}
                           >
                             <Play className="w-3.5 h-3.5 fill-current" />
                             <span>Iniciar</span>

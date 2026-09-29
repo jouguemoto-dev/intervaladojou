@@ -21,6 +21,7 @@ import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestor
 import { SoundProfile } from '../types/workout';
 import { audioAlerts, SOUND_PROFILES } from '../utils/soundAndTts';
 import { formatTimeDisplay } from '../utils/dashboardCalculator';
+import { useTheme, THEME_CONFIGS, AppTheme } from '../context/ThemeContext';
 import {
   User as UserIcon,
   LogOut,
@@ -38,6 +39,7 @@ import {
   Sliders,
   ChevronRight,
   TrendingUp,
+  Palette,
 } from 'lucide-react';
 
 interface UserAccountModalProps {
@@ -55,6 +57,7 @@ export const UserAccountModal: React.FC<UserAccountModalProps> = ({
   profile,
   onProfileUpdated,
 }) => {
+  const { theme: currentTheme, themeConfig, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<'profile' | 'history' | 'auth'>('profile');
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
 
@@ -550,13 +553,45 @@ export const UserAccountModal: React.FC<UserAccountModalProps> = ({
                   ))}
                 </select>
               </div>
+
+              {/* App Color Theme */}
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                  <Palette className="w-3.5 h-3.5 text-amber-400" />
+                  Tema de Cores do App
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(['cyber-emerald', 'lava-orange', 'electric-cyan', 'light-slate'] as AppTheme[]).map((themeKey) => {
+                    const cfg = THEME_CONFIGS[themeKey];
+                    const isSelected = currentTheme === themeKey;
+                    return (
+                      <button
+                        key={themeKey}
+                        type="button"
+                        onClick={() => setTheme(themeKey)}
+                        className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-bold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-slate-800 border-white text-white shadow-sm'
+                            : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <div
+                          className="w-4 h-4 rounded-full border border-white/20 shadow-sm"
+                          style={{ backgroundColor: cfg.previewAccent }}
+                        />
+                        <span className="text-[10px] leading-tight text-center">{cfg.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
             <div className="flex gap-2">
               <button
                 onClick={handleSaveProfile}
                 disabled={isLoading}
-                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-950 transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                className={`flex-1 py-2.5 rounded-xl text-xs shadow-md transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer ${themeConfig.buttonPrimary}`}
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>Salvar Preferências no Banco de Dados</span>
