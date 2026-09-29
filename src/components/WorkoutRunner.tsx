@@ -25,6 +25,8 @@ import {
   Trophy,
   Activity,
   Navigation,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 
 interface WorkoutRunnerProps {
@@ -46,6 +48,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
   const [isPaused, setIsPaused] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [totalElapsedSeconds, setTotalElapsedSeconds] = useState(0);
+  const [isScreenLockedOn, setIsScreenLockedOn] = useState(true);
 
   // Audio & TTS toggles
   const [beepsEnabled, setBeepsEnabled] = useState(!audioAlerts.isBeepsMuted());
@@ -65,6 +68,8 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
 
   const gpsTrackerRef = useRef<GpsTrackerEngine | null>(null);
   const wakeLockRef = useRef<any>(null);
+  const isScreenLockedOnRef = useRef(true);
+  isScreenLockedOnRef.current = isScreenLockedOn;
 
   // Mutable refs to prevent useEffect teardown on every single second
   const currentStepIndexRef = useRef(0);
@@ -75,6 +80,9 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
 
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
+
+  const isCompletedRef = useRef(isCompleted);
+  isCompletedRef.current = isCompleted;
 
   const totalWorkoutSeconds = steps.reduce((acc, s) => acc + s.durationSeconds, 0);
   const totalRemainingSeconds = Math.max(0, totalWorkoutSeconds - totalElapsedSeconds);
@@ -103,18 +111,52 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
     audioAlerts.speak(msg);
   }, []);
 
+  // Request or Release Screen WakeLock
+  const applyWakeLock = useCallback(async (shouldLock: boolean) => {
+    try {
+      if ('wakeLock' in navigator) {
+        if (shouldLock) {
+          if (!wakeLockRef.current) {
+            wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+            wakeLockRef.current.addEventListener('release', () => {
+              wakeLockRef.current = null;
+            });
+          }
+        } else {
+          if (wakeLockRef.current) {
+            await wakeLockRef.current.release();
+            wakeLockRef.current = null;
+          }
+        }
+      }
+    } catch {
+      // WakeLock unsupported or rejected
+    }
+  }, []);
+
+  const toggleScreenLock = async () => {
+    const nextState = !isScreenLockedOn;
+    setIsScreenLockedOn(nextState);
+    await applyWakeLock(nextState);
+    if (nextState) {
+      audioAlerts.speak('Cadeado ativado: tela travada ligada');
+    } else {
+      audioAlerts.speak('Cadeado liberado: bloqueio normal de tela');
+    }
+  };
+
   // Screen WakeLock & GPS Initialization
   useEffect(() => {
-    async function requestWakeLock() {
-      try {
-        if ('wakeLock' in navigator) {
-          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-        }
-      } catch {
-        // WakeLock unsupported
+    applyWakeLock(true);
+
+    const handleVisibilityChange = async () => {
+      // Re-acquire WakeLock if screen comes back on and lock is enabled
+      if (document.visibilityState === 'visible' && isScreenLockedOnRef.current) {
+        applyWakeLock(true);
       }
-    }
-    requestWakeLock();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     const tracker = new GpsTrackerEngine();
     gpsTrackerRef.current = tracker;
@@ -147,6 +189,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
     }
 
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       unsubscribe();
       if (tracker) {
         tracker.stopTracking();
@@ -157,7 +200,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       }
       audioAlerts.stopAll();
     };
-  }, [steps, announceStep]);
+  }, [steps, announceStep, applyWakeLock, workout.name]);
 
   // Sync GPS simulation speed with current phase
   useEffect(() => {
@@ -166,11 +209,17 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
     }
   }, [currentStep]);
 
-  // STABLE 1000ms Countdown Timer
+  // BULLETPROOF BACKGROUND TIMER VIA WEB WORKER (FALLBACK TO INTERVAL)
+  // Web Workers run in a background thread and are not suspended when phone screen is locked
   useEffect(() => {
     if (isPaused || isCompleted) return;
 
-    const interval = setInterval(() => {
+    let worker: Worker | null = null;
+    let fallbackInterval: any = null;
+
+    const handleTick = () => {
+      if (isPausedRef.current || isCompletedRef.current) return;
+
       // 1. Advance total elapsed time
       const nextTotal = totalElapsedRef.current + 1;
       totalElapsedRef.current = nextTotal;
@@ -217,6 +266,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
           } else {
             // WORKOUT FINISHED!
             setIsCompleted(true);
+            isCompletedRef.current = true;
             audioAlerts.playCompletionFanfare();
             audioAlerts.speak('Parabéns! Treino concluído com sucesso!');
 
@@ -261,9 +311,29 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
 
         return prevSec - 1;
       });
-    }, 1000);
+    };
 
-    return () => clearInterval(interval);
+    try {
+      worker = new Worker('/timer-worker.js');
+      worker.onmessage = (e) => {
+        if (e.data?.type === 'tick') {
+          handleTick();
+        }
+      };
+      worker.postMessage({ command: 'start', interval: 1000 });
+    } catch {
+      fallbackInterval = setInterval(handleTick, 1000);
+    }
+
+    return () => {
+      if (worker) {
+        worker.postMessage({ command: 'stop' });
+        worker.terminate();
+      }
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
+      }
+    };
   }, [isPaused, isCompleted, steps, workout, announceStep]);
 
   const togglePlayPause = () => {
@@ -469,8 +539,29 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
           <span>-{formatTimeDisplay(totalRemainingSeconds)}</span>
         </div>
 
-        {/* Audio & Settings Controls */}
+        {/* Audio, Screen Lock & Settings Controls */}
         <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
+          {/* Padlock button to lock screen ON / release */}
+          <button
+            onClick={toggleScreenLock}
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer flex items-center justify-center ${
+              isScreenLockedOn
+                ? 'text-amber-400 bg-amber-400/15'
+                : 'text-slate-600 hover:text-slate-400'
+            }`}
+            title={
+              isScreenLockedOn
+                ? 'Cadeado Ativo: Tela travada ligada (Não apaga). Clique para liberar.'
+                : 'Cadeado Desligado: Tela pode apagar normalmente. Clique para travar ligada.'
+            }
+          >
+            {isScreenLockedOn ? (
+              <Lock className="w-4 h-4 text-amber-400" />
+            ) : (
+              <Unlock className="w-4 h-4 text-slate-500" />
+            )}
+          </button>
+
           <button
             onClick={toggleBeeps}
             className={`p-1.5 rounded-lg transition-colors cursor-pointer ${

@@ -28,32 +28,38 @@ class AudioAlertEngine {
 
   /**
    * Starts a silent audio loop in the background to prevent Chrome/Safari/Android
-   * from suspending the tab when the user locks the screen or switches apps.
+   * from suspending the audio session or tab when the user locks the screen or switches apps.
    */
   public startBackgroundKeepAlive(title = 'RitmoInterval Treino Ativo') {
     if (typeof window === 'undefined') return;
 
     try {
+      this.unlockAudio();
+
       if (!this.silentAudioElement) {
-        // Ultra-compact silent WAV base64 (44 bytes standard header + silent PCM loop)
+        // Continuous generated audio buffer or base64 silent WAV with standard valid RIFF header
+        // 1 second of silent 8000Hz mono PCM audio
         const silentWavBase64 =
-          'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAC7u7u7';
+          'data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YRAAAAAAAP//AAAAAAAA//8AAP//';
         const audio = new Audio(silentWavBase64);
         audio.loop = true;
-        audio.volume = 0.01;
+        audio.volume = 0.05; // non-zero to prevent OS power-saver from treating as no-op
         this.silentAudioElement = audio;
       }
 
-      this.silentAudioElement.play().catch(() => {
-        // Ignored if user hasn't interacted yet
-      });
+      const playPromise = this.silentAudioElement.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {
+          // Play retry on user interaction
+        });
+      }
 
       // Integrate with Android / iOS Notification Lockscreen Controls (MediaSession API)
       if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
           title: title,
           artist: 'RitmoInterval - Corrida e HIIT',
-          album: 'Treino Intervalado em Execução',
+          album: 'Treino Intervalado em Execução (Tela Bloqueada)',
           artwork: [
             { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
             { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
@@ -456,6 +462,16 @@ class AudioAlertEngine {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
     try {
+      // Ensure audio context is running to keep audio pipeline active
+      if (this.audioCtx && this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume().catch(() => {});
+      }
+
+      // Resume speech synthesis engine in case Android froze it in background
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+
       window.speechSynthesis.cancel();
 
       // Dynamically resolve pt-BR voice if it loaded asynchronously
@@ -476,6 +492,24 @@ class AudioAlertEngine {
       if (this.selectedVoice) {
         utterance.voice = this.selectedVoice;
       }
+
+      // Workaround for Chromium Android SpeechSynthesis bug when screen is locked:
+      // Periodic resume call keeps speech engine alive
+      const resumeInterval = setInterval(() => {
+        if (!window.speechSynthesis.speaking) {
+          clearInterval(resumeInterval);
+        } else {
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+        }
+      }, 5000);
+
+      utterance.onend = () => {
+        clearInterval(resumeInterval);
+      };
+      utterance.onerror = () => {
+        clearInterval(resumeInterval);
+      };
 
       window.speechSynthesis.speak(utterance);
     } catch {
