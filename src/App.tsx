@@ -27,12 +27,14 @@ import { WorkoutRunner } from './components/WorkoutRunner';
 import { AndroidCodeHub } from './components/AndroidCodeHub';
 import { UserAccountModal } from './components/UserAccountModal';
 import { ThemeModal } from './components/ThemeModal';
+import { ActivitiesHistoryModal } from './components/ActivitiesHistoryModal';
 import { useTheme } from './context/ThemeContext';
 import { audioAlerts } from './utils/soundAndTts';
 import {
   Activity,
   User as UserIcon,
   Palette,
+  Trophy,
 } from 'lucide-react';
 
 type MainTab = 'workouts' | 'builder' | 'code';
@@ -49,6 +51,7 @@ export default function App() {
   const [profile, setProfile] = useState<AthleteProfile | null>(null);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+  const [isActivitiesModalOpen, setIsActivitiesModalOpen] = useState(false);
 
   // 1. Automatically activate the cloud database on initial mount
   useEffect(() => {
@@ -229,26 +232,35 @@ export default function App() {
       <header className="bg-slate-900/90 backdrop-blur-md border-b border-slate-800/80 px-4 py-3 flex items-center justify-between flex-shrink-0 z-20">
           <div className="flex items-center gap-2.5">
             <span className="text-base font-black text-white tracking-tight">
-              Ritmo<span className={themeConfig.accentText}>Interval</span>
+              Júlio César <span className={themeConfig.accentText}>Ritmo Intervalo</span>
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setIsActivitiesModalOpen(true)}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-bold transition-all cursor-pointer shadow-sm active:scale-95"
+              title="Atividades Salvas"
+            >
+              <Trophy className="w-3 h-3 text-amber-400" />
+              <span>Atividades</span>
+            </button>
+
             <button
               onClick={() => setIsThemeModalOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold transition-all cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-semibold transition-all cursor-pointer"
               title="Mudar Tema de Cores"
             >
-              <Palette className={`w-3.5 h-3.5 ${themeConfig.accentText}`} />
-              <span className="text-[11px] font-bold text-white hidden xs:inline">{themeConfig.label}</span>
+              <Palette className={`w-3 h-3 ${themeConfig.accentText}`} />
+              <span className="text-[10px] font-bold text-white hidden xs:inline">{themeConfig.label}</span>
             </button>
 
             <button
               onClick={() => setIsAccountModalOpen(true)}
-              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer"
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer"
               title="Conta e Perfil"
             >
-              <UserIcon className="w-4 h-4" />
+              <UserIcon className="w-3.5 h-3.5" />
             </button>
           </div>
         </header>
@@ -311,6 +323,11 @@ export default function App() {
         </nav>
 
         {/* Modals */}
+        <ActivitiesHistoryModal
+          isOpen={isActivitiesModalOpen}
+          onClose={() => setIsActivitiesModalOpen(false)}
+        />
+
         <ThemeModal
           isOpen={isThemeModalOpen}
           onClose={() => setIsThemeModalOpen(false)}

@@ -129,6 +129,14 @@ export interface SoundProfileConfig {
   volumeBoost: number;
 }
 
+export interface TrackPoint {
+  lat: number;
+  lng: number;
+  timestamp: number;
+  phase: PhaseType;
+  speedKmh?: number;
+}
+
 export interface GpsRunMetrics {
   distanceMeters: number;
   formattedDistance: string; // e.g. "2.45 km" or "850 m"
@@ -136,6 +144,7 @@ export interface GpsRunMetrics {
   averagePaceMinKm: string; // e.g. "05:20 /km"
   gpsStatus: 'active' | 'searching' | 'simulated' | 'denied' | 'disabled';
   accuracyMeters: number | null;
+  trackPoints?: TrackPoint[];
 }
 
 export interface DashboardSummary {

@@ -150,3 +150,34 @@ export function saveLocalRun(run: any): any[] {
   }
 }
 
+export interface DailyGoalConfig {
+  type: 'time' | 'steps';
+  targetMinutes: number; // e.g. 30 min
+  targetSteps: number;   // e.g. 10 séries
+}
+
+const DAILY_GOAL_CONFIG_KEY = 'ritmo_interval_daily_goal_config_v1';
+
+export function loadDailyGoalConfig(): DailyGoalConfig {
+  try {
+    const raw = localStorage.getItem(DAILY_GOAL_CONFIG_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.error(e);
+  }
+  return {
+    type: 'time',
+    targetMinutes: 30,
+    targetSteps: 8,
+  };
+}
+
+export function saveDailyGoalConfig(config: DailyGoalConfig): void {
+  try {
+    localStorage.setItem(DAILY_GOAL_CONFIG_KEY, JSON.stringify(config));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+

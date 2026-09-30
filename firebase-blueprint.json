@@ -48,9 +48,11 @@
         "totalElapsedSeconds": { "type": "number" },
         "distanceMeters": { "type": "number" },
         "averagePace": { "type": "string" },
+        "speedKmh": { "type": "number" },
         "stepsCompleted": { "type": "number" },
         "totalSteps": { "type": "number" },
-        "completedAt": { "type": "number" }
+        "completedAt": { "type": "number" },
+        "gpsTrack": { "type": "array" }
       },
       "required": ["id", "userId", "workoutName", "totalElapsedSeconds", "completedAt"]
     }

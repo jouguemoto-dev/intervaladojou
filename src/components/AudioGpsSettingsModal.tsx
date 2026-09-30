@@ -90,18 +90,29 @@ export const AudioGpsSettingsModal: React.FC<AudioGpsSettingsModalProps> = ({
 
         {/* SECTION 1: SOUND PROFILES */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
               <Volume2 className="w-3.5 h-3.5 text-rose-400" />
               Perfil de Alerta Sonoro / Bip
             </span>
-            <button
-              onClick={handleTestSound}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all active:scale-95 shadow-sm"
-            >
-              <Play className="w-3 h-3 fill-current" />
-              <span>Ouvir Teste</span>
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => audioAlerts.testCurrentSound('high_intensity')}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold transition-all active:scale-95 shadow-sm"
+                title="Ouvir som exclusivo de Corrida Forte (Tiro)"
+              >
+                <Play className="w-2.5 h-2.5 fill-current" />
+                <span>Testar Tiro Forte</span>
+              </button>
+              <button
+                onClick={() => audioAlerts.testCurrentSound('low_intensity')}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold transition-all active:scale-95 shadow-sm"
+                title="Ouvir som exclusivo de Trote Leve"
+              >
+                <Play className="w-2.5 h-2.5 fill-current" />
+                <span>Testar Trote</span>
+              </button>
+            </div>
           </div>
 
           <div className="space-y-2">

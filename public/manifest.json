@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "RitmoInterval - Corrida e HIIT",
-  "short_name": "RitmoInterval",
-  "description": "Aplicativo de corrida intervalada, tiros e HIIT com alertas sonoros em alta potência, GPS e sincronização em tempo real.",
+  "name": "Júlio César Ritmo Intervalo",
+  "short_name": "Júlio César Ritmo",
+  "description": "Aplicativo de corrida intervalada, tiros e treinos personalizados de Júlio César Ritmo Intervalo.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

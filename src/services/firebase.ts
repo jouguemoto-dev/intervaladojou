@@ -23,7 +23,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { SoundProfile, Workout } from '../types/workout';
+import { SoundProfile, Workout, TrackPoint } from '../types/workout';
 
 // Initialize Firebase App
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -49,6 +49,11 @@ export interface AthleteProfile {
   vibrationEnabled: boolean;
   weeklyGoalKm: number;
   runningLevel: 'iniciante' | 'intermediario' | 'avancado';
+  dailyGoal?: {
+    type: 'time' | 'steps';
+    targetMinutes: number;
+    targetSteps: number;
+  };
   workoutsSeeded?: boolean;
   createdAt: number;
   updatedAt: number;
@@ -66,6 +71,7 @@ export interface RunHistoryItem {
   stepsCompleted: number;
   totalSteps: number;
   completedAt: number;
+  gpsTrack?: TrackPoint[];
 }
 
 /**

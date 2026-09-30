@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Workout } from '../types/workout';
 import { calculateWorkoutDashboard } from '../utils/dashboardCalculator';
 import { useTheme } from '../context/ThemeContext';
+import { DailyGoalCard } from './DailyGoalCard';
 import {
   Play,
   Plus,
@@ -56,7 +57,10 @@ export const WorkoutList: React.FC<WorkoutListProps> = ({
       </div>
 
       {/* Main List */}
-      <div className="px-5 max-w-4xl mx-auto w-full space-y-3.5 flex-1">
+      <div className="px-5 max-w-4xl mx-auto w-full space-y-4 flex-1">
+        {/* Daily Goal & Progress */}
+        <DailyGoalCard />
+
         {workouts.length === 0 ? (
           <div className="text-center py-16 px-4 border border-dashed border-slate-800 rounded-3xl bg-slate-900/40 max-w-md mx-auto">
             <h3 className="text-base font-bold text-white">Nenhum treino disponível</h3>
@@ -103,14 +107,14 @@ export const WorkoutList: React.FC<WorkoutListProps> = ({
                       </div>
 
                       {workout.description && (
-                        <p className="text-xs text-slate-400 line-clamp-1 mb-3.5">
+                        <p className="text-sm text-slate-300 line-clamp-1 mb-3.5 font-medium">
                           {workout.description}
                         </p>
                       )}
 
                       {/* Mini Effort Distribution Bar */}
-                      <div className="space-y-2 max-w-md">
-                        <div className="h-1.5 w-full bg-slate-950 rounded-full overflow-hidden flex gap-0.5 border border-slate-800/80">
+                      <div className="space-y-2.5 max-w-md">
+                        <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex gap-0.5 border border-slate-800">
                           {summary.pctWarmup > 0 && (
                             <div
                               style={{ width: `${summary.pctWarmup}%` }}
@@ -138,16 +142,16 @@ export const WorkoutList: React.FC<WorkoutListProps> = ({
                         </div>
 
                         {/* Clean Metadata Line with Typographic Separators */}
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 font-medium">
-                          <span className="font-bold text-white font-mono tabular-nums">
+                        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-300 font-semibold">
+                          <span className="font-extrabold text-white font-mono tabular-nums text-base">
                             {summary.formattedTotalTime}
                           </span>
-                          <span aria-hidden="true">·</span>
-                          <span>
-                            {summary.formattedHighIntensity} de esforço intenso
+                          <span aria-hidden="true" className="text-slate-500">·</span>
+                          <span className="text-rose-400 font-bold">
+                            {summary.formattedHighIntensity} de tiro
                           </span>
-                          <span aria-hidden="true">·</span>
-                          <span className="tabular-nums">
+                          <span aria-hidden="true" className="text-slate-500">·</span>
+                          <span className="tabular-nums text-slate-300">
                             {summary.totalStepsCount} etapas
                           </span>
                         </div>

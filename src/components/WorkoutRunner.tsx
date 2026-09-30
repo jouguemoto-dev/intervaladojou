@@ -11,6 +11,7 @@ import { audioAlerts } from '../utils/soundAndTts';
 import { screenWakeLock } from '../utils/screenWakeLock';
 import { GpsTrackerEngine } from '../utils/gpsTracker';
 import { AudioGpsSettingsModal } from './AudioGpsSettingsModal';
+import { RouteMiniMap } from './RouteMiniMap';
 import { useTheme } from '../context/ThemeContext';
 import confetti from 'canvas-confetti';
 import {
@@ -96,9 +97,10 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
   const currentCfg = currentStep ? PHASE_CONFIGS[currentStep.phase] : PHASE_CONFIGS.rest;
 
   const announceStep = useCallback((step: FlattenedStep) => {
-    audioAlerts.playPhaseChangeAlert();
+    // 1. Play distinct sound alert tuned specifically for high intensity vs low intensity
+    audioAlerts.playPhaseChangeAlert(step.phase);
 
-    // 1. Play guaranteed Web Audio voice cue (100% plays even if screen is locked)
+    // 2. Play guaranteed Web Audio voice cue (100% plays even if screen is locked)
     if (step.phase === 'high_intensity') {
       audioAlerts.playVoiceCue('tiro');
     } else if (step.phase === 'low_intensity') {
@@ -218,8 +220,15 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
     }
   }, [currentStep]);
 
-  // BULLETPROOF BACKGROUND TIMER VIA WEB WORKER (FALLBACK TO INTERVAL)
-  // Web Workers run in a background thread and are not suspended when phone screen is locked
+  // Stabilized ref for announceStep so timer worker effect is NEVER recreated prematurely
+  const announceStepRef = useRef(announceStep);
+  announceStepRef.current = announceStep;
+
+  // Track seconds remaining via ref to enable robust calculations even when screen sleeps
+  const secondsRemainingRef = useRef(steps[0]?.durationSeconds || 0);
+
+  // BULLETPROOF BACKGROUND TIMER VIA WEB WORKER WITH TIMESTAMP DRIFT COMPENSATION
+  // Runs continuously in second plan even if screen is locked or phone is in user's pocket
   useEffect(() => {
     if (isPaused || isCompleted) return;
 
@@ -240,88 +249,101 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       }
 
       // 2. Decrement step seconds
-      setSecondsRemaining((prevSec) => {
-        const activeIdx = currentStepIndexRef.current;
-        const activeStep = steps[activeIdx];
-        const upcomingStep = steps[activeIdx + 1];
+      const currentRemaining = secondsRemainingRef.current;
+      const activeIdx = currentStepIndexRef.current;
+      const activeStep = steps[activeIdx];
+      const upcomingStep = steps[activeIdx + 1];
 
-        if (!activeStep) return 0;
+      if (!activeStep) return;
 
-        // Countdown ticks at 3, 2, 1
-        if (prevSec <= 4 && prevSec > 1) {
-          audioAlerts.playCountdownTick(prevSec - 1);
-        }
+      // Countdown ticks at 3, 2, 1
+      if (currentRemaining <= 4 && currentRemaining > 1) {
+        audioAlerts.playCountdownTick(currentRemaining - 1);
+      }
 
-        // Halfway motivational announcement
-        if (activeStep.durationSeconds >= 60 && prevSec === Math.floor(activeStep.durationSeconds / 2)) {
-          audioAlerts.playVoiceCue('metade');
-          audioAlerts.speak('Metade concluída!');
-        }
+      // Halfway motivational announcement
+      if (activeStep.durationSeconds >= 60 && currentRemaining === Math.floor(activeStep.durationSeconds / 2)) {
+        audioAlerts.playVoiceCue('metade');
+        audioAlerts.speak('Metade concluída!');
+      }
 
-        // 5 seconds notice for next phase
-        if (prevSec === 6 && upcomingStep) {
-          audioAlerts.playVoiceCue('atencao');
-          const nextCfg = PHASE_CONFIGS[upcomingStep.phase];
-          audioAlerts.speak(`Atenção: ${nextCfg.label} em 5 segundos.`);
-        }
+      // 5 seconds notice for next phase
+      if (currentRemaining === 6 && upcomingStep) {
+        audioAlerts.playVoiceCue('atencao');
+        const nextCfg = PHASE_CONFIGS[upcomingStep.phase];
+        audioAlerts.speak(`Atenção: ${nextCfg.label} em 5 segundos.`);
+      }
 
-        // Phase finished: advance or complete
-        if (prevSec <= 1) {
-          if (activeIdx + 1 < steps.length) {
-            const nextIdx = activeIdx + 1;
-            currentStepIndexRef.current = nextIdx;
-            setCurrentStepIndex(nextIdx);
-            const nextStp = steps[nextIdx];
-            announceStep(nextStp);
-            return nextStp.durationSeconds;
-          } else {
-            // WORKOUT FINISHED!
-            setIsCompleted(true);
-            isCompletedRef.current = true;
-            audioAlerts.playCompletionFanfare();
-            audioAlerts.speak('Parabéns! Treino concluído com sucesso!');
+      // Phase finished: advance or complete
+      if (currentRemaining <= 1) {
+        if (activeIdx + 1 < steps.length) {
+          const nextIdx = activeIdx + 1;
+          currentStepIndexRef.current = nextIdx;
+          setCurrentStepIndex(nextIdx);
+          const nextStp = steps[nextIdx];
+          secondsRemainingRef.current = nextStp.durationSeconds;
+          setSecondsRemaining(nextStp.durationSeconds);
+          announceStepRef.current(nextStp);
+        } else {
+          // WORKOUT FINISHED!
+          secondsRemainingRef.current = 0;
+          setSecondsRemaining(0);
+          setIsCompleted(true);
+          isCompletedRef.current = true;
+          audioAlerts.playCompletionFanfare();
+          audioAlerts.speak('Parabéns! Treino concluído com sucesso!');
 
-            // Save to Firestore cloud history
-            const finalMetrics = gpsTrackerRef.current?.getMetrics(nextTotal) || {
-              distanceMeters: 0,
-              averagePaceMinKm: '--:-- /km',
-              currentSpeedKmh: 0,
-            };
+          // Save to Firestore cloud history and local persistent storage
+          const finalMetrics = gpsTrackerRef.current?.getMetrics(nextTotal) || {
+            distanceMeters: 0,
+            averagePaceMinKm: '--:-- /km',
+            currentSpeedKmh: 0,
+            trackPoints: [],
+          };
 
-            if (typeof window !== 'undefined') {
-              import('../services/firebase').then(({ auth, saveRunHistoryToCloud }) => {
-                if (auth.currentUser) {
-                  saveRunHistoryToCloud(auth.currentUser.uid, {
-                    id: `run_${Date.now()}`,
-                    workoutId: workout.id,
-                    workoutName: workout.name,
-                    totalElapsedSeconds: nextTotal,
-                    distanceMeters: finalMetrics.distanceMeters,
-                    averagePace: finalMetrics.averagePaceMinKm,
-                    speedKmh: finalMetrics.currentSpeedKmh,
-                    stepsCompleted: steps.length,
-                    totalSteps: steps.length,
-                    completedAt: Date.now(),
-                  }).catch(console.error);
-                }
-              }).catch(() => {});
-            }
+          const runPayload = {
+            id: `run_${Date.now()}`,
+            workoutId: workout.id,
+            workoutName: workout.name,
+            totalElapsedSeconds: nextTotal,
+            distanceMeters: finalMetrics.distanceMeters,
+            averagePace: finalMetrics.averagePaceMinKm,
+            speedKmh: finalMetrics.currentSpeedKmh,
+            stepsCompleted: steps.length,
+            totalSteps: steps.length,
+            completedAt: Date.now(),
+            gpsTrack: finalMetrics.trackPoints || [],
+          };
 
-            try {
-              confetti({
-                particleCount: 140,
-                spread: 90,
-                origin: { y: 0.6 },
-              });
-            } catch {
-              // Confetti fallback
-            }
-            return 0;
+          if (typeof window !== 'undefined') {
+            // 1. Immediately save to local storage (guarantees activity is saved even if offline)
+            import('../services/storage').then(({ saveLocalRun }) => {
+              saveLocalRun(runPayload);
+            }).catch(() => {});
+
+            // 2. Sync with cloud Firestore
+            import('../services/firebase').then(({ auth, saveRunHistoryToCloud }) => {
+              if (auth.currentUser) {
+                saveRunHistoryToCloud(auth.currentUser.uid, runPayload).catch(console.error);
+              }
+            }).catch(() => {});
+          }
+
+          try {
+            confetti({
+              particleCount: 140,
+              spread: 90,
+              origin: { y: 0.6 },
+            });
+          } catch {
+            // Confetti fallback
           }
         }
-
-        return prevSec - 1;
-      });
+      } else {
+        const nextRem = currentRemaining - 1;
+        secondsRemainingRef.current = nextRem;
+        setSecondsRemaining(nextRem);
+      }
     };
 
     try {
@@ -345,7 +367,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
         clearInterval(fallbackInterval);
       }
     };
-  }, [isPaused, isCompleted, steps, workout, announceStep]);
+  }, [isPaused, isCompleted, steps, workout.id, workout.name]);
 
   const togglePlayPause = () => {
     audioAlerts.unlockAudio();
@@ -367,7 +389,9 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       const nextIdx = activeIdx + 1;
       currentStepIndexRef.current = nextIdx;
       setCurrentStepIndex(nextIdx);
-      setSecondsRemaining(steps[nextIdx].durationSeconds);
+      const nextDur = steps[nextIdx].durationSeconds;
+      secondsRemainingRef.current = nextDur;
+      setSecondsRemaining(nextDur);
       announceStep(steps[nextIdx]);
     } else {
       setIsCompleted(true);
@@ -380,12 +404,16 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
     audioAlerts.unlockAudio();
     const activeIdx = currentStepIndexRef.current;
     if (secondsRemaining < (currentStep?.durationSeconds || 0) - 3) {
-      setSecondsRemaining(currentStep?.durationSeconds || 0);
+      const curDur = currentStep?.durationSeconds || 0;
+      secondsRemainingRef.current = curDur;
+      setSecondsRemaining(curDur);
     } else if (activeIdx > 0) {
       const prevIdx = activeIdx - 1;
       currentStepIndexRef.current = prevIdx;
       setCurrentStepIndex(prevIdx);
-      setSecondsRemaining(steps[prevIdx].durationSeconds);
+      const prevDur = steps[prevIdx].durationSeconds;
+      secondsRemainingRef.current = prevDur;
+      setSecondsRemaining(prevDur);
       announceStep(steps[prevIdx]);
     }
   };
@@ -458,9 +486,10 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
           </div>
 
           <div>
-            <span className="text-xs font-semibold text-emerald-400 uppercase tracking-widest block mb-1">
-              Sessão Concluída
-            </span>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-bold mb-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Atividade Salva com Sucesso!
+            </div>
             <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
               {workout.name}
             </h2>
@@ -496,13 +525,28 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
             </div>
           </div>
 
+          {/* GPS Route Map with Phase Gradients */}
+          {gpsMetrics.trackPoints && gpsMetrics.trackPoints.length >= 2 && (
+            <div className="space-y-1.5 text-left">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-300 px-1">
+                <span>Trajeto GPS & Cores dos Tiros</span>
+                <span className="text-[10px] text-cyan-400 font-mono">
+                  {gpsMetrics.trackPoints.length} pontos
+                </span>
+              </div>
+              <RouteMiniMap trackPoints={gpsMetrics.trackPoints} height={190} />
+            </div>
+          )}
+
           <div className="flex flex-col gap-2.5 pt-1">
             <button
               onClick={() => {
                 currentStepIndexRef.current = 0;
                 totalElapsedRef.current = 0;
+                const firstDur = steps[0]?.durationSeconds || 0;
+                secondsRemainingRef.current = firstDur;
                 setCurrentStepIndex(0);
-                setSecondsRemaining(steps[0]?.durationSeconds || 0);
+                setSecondsRemaining(firstDur);
                 setTotalElapsedSeconds(0);
                 setIsCompleted(false);
                 setIsPaused(false);
@@ -524,7 +568,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
         </div>
 
         <div className="text-xs text-slate-600 font-medium py-2">
-          RitmoInterval
+          Júlio César Ritmo Intervalo
         </div>
       </div>
     );
@@ -537,28 +581,28 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       <div className="flex items-center justify-between z-10 gap-2">
         <button
           onClick={onExit}
-          className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition-colors cursor-pointer"
+          className="p-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition-colors cursor-pointer"
           title="Encerrar sessão"
         >
-          <X className="w-5 h-5" />
+          <X className="w-6 h-6" />
         </button>
 
         {/* Workout Progress Indicator */}
-        <div className="text-xs text-slate-400 font-medium font-mono tabular-nums">
-          <span className="text-white font-semibold">{formatTimeDisplay(totalElapsedSeconds)}</span>
-          <span className="mx-1 text-slate-600">/</span>
-          <span>-{formatTimeDisplay(totalRemainingSeconds)}</span>
+        <div className="text-sm sm:text-base text-slate-300 font-bold font-mono tabular-nums bg-slate-900/90 px-3.5 py-1.5 rounded-xl border border-slate-800">
+          <span className="text-white">{formatTimeDisplay(totalElapsedSeconds)}</span>
+          <span className="mx-1.5 text-slate-500">/</span>
+          <span className="text-slate-400">-{formatTimeDisplay(totalRemainingSeconds)}</span>
         </div>
 
         {/* Screen Lock, Audio & Settings Controls */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           {/* Prominent Dedicated Padlock Button: Trava a tela para NUNCA apagar */}
           <button
             onClick={toggleScreenLock}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm ${
+            className={`flex items-center gap-2 px-3 py-2 rounded-2xl border text-xs sm:text-sm font-bold transition-all active:scale-95 cursor-pointer shadow-sm ${
               isScreenLockedOn
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-amber-500/10 animate-pulse'
-                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                ? 'bg-amber-500/25 text-amber-300 border-amber-500/70 shadow-amber-500/20 animate-pulse'
+                : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white'
             }`}
             title={
               isScreenLockedOn
@@ -568,93 +612,93 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
           >
             {isScreenLockedOn ? (
               <>
-                <Lock className="w-3.5 h-3.5 text-amber-400 fill-amber-400/20" />
-                <span className="text-[11px] font-black uppercase tracking-wider text-amber-300 hidden xs:inline">Tela Travada</span>
+                <Lock className="w-4 h-4 text-amber-400 fill-amber-400/20" />
+                <span className="text-xs font-black uppercase tracking-wider text-amber-300 hidden xs:inline">Travada</span>
               </>
             ) : (
               <>
-                <Unlock className="w-3.5 h-3.5 text-slate-400" />
-                <span className="text-[11px] font-medium text-slate-400 hidden xs:inline">Travar Tela</span>
+                <Unlock className="w-4 h-4 text-slate-400" />
+                <span className="text-xs font-bold text-slate-300 hidden xs:inline">Travar</span>
               </>
             )}
           </button>
 
-          <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
+          <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-2xl border border-slate-800">
             <button
               onClick={toggleBeeps}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                beepsEnabled ? 'text-white' : 'text-slate-600'
+              className={`p-2 rounded-xl transition-colors cursor-pointer ${
+                beepsEnabled ? 'text-white bg-slate-800' : 'text-slate-500'
               }`}
               title="Sons de bip"
             >
-              {beepsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+              {beepsEnabled ? <Volume2 className="w-5 h-5 text-emerald-400" /> : <VolumeX className="w-5 h-5" />}
             </button>
 
             <button
               onClick={toggleTts}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                ttsEnabled ? 'text-white' : 'text-slate-600'
+              className={`p-2 rounded-xl transition-colors cursor-pointer ${
+                ttsEnabled ? 'text-white bg-slate-800' : 'text-slate-500'
               }`}
               title="Instruções de voz"
             >
-              {ttsEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+              {ttsEnabled ? <Mic className="w-5 h-5 text-cyan-400" /> : <MicOff className="w-5 h-5" />}
             </button>
 
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
+              className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
               title="Configurações de som e GPS"
             >
-              <Sliders className="w-4 h-4" />
+              <Sliders className="w-5 h-5" />
             </button>
           </div>
         </div>
       </div>
 
-      {/* GPS Telemetry Bar */}
-      <div className="w-full max-w-sm mx-auto z-10 space-y-1.5">
+      {/* GPS Telemetry Bar - High Visibility for Outdoor Running */}
+      <div className="w-full max-w-md mx-auto z-10 space-y-2">
         <div 
           onClick={() => setIsSettingsOpen(true)}
-          className="bg-slate-900/90 border border-slate-800 rounded-2xl px-5 py-2.5 flex items-center justify-between shadow-sm cursor-pointer hover:border-slate-700 transition-colors"
+          className="bg-slate-900/95 border-2 border-slate-800 hover:border-slate-700 rounded-2xl px-6 py-3 flex items-center justify-between shadow-lg cursor-pointer transition-colors"
           title="Toque para configurar sons ou alternar modo de GPS"
         >
           <div className="text-left">
-            <span className="text-[10px] text-slate-400 uppercase font-medium block">
-              Distância
+            <span className="text-xs sm:text-sm text-slate-300 font-extrabold uppercase tracking-wider block">
+              DISTÂNCIA
             </span>
-            <span className="text-lg font-black text-white font-mono tabular-nums">
+            <span className="text-2xl sm:text-3xl font-black text-white font-mono tabular-nums leading-tight">
               {gpsMetrics.formattedDistance}
             </span>
           </div>
 
-          <div className="h-6 w-[1px] bg-slate-800" />
+          <div className="h-10 w-[1.5px] bg-slate-800" />
 
           <div className="text-center">
-            <span className="text-[10px] text-slate-400 uppercase font-medium block">
-              Ritmo
+            <span className="text-xs sm:text-sm text-slate-300 font-extrabold uppercase tracking-wider block">
+              RITMO
             </span>
-            <span className="text-sm font-bold text-slate-200 font-mono tabular-nums">
+            <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono tabular-nums leading-tight">
               {gpsMetrics.averagePaceMinKm}
             </span>
           </div>
 
-          <div className="h-6 w-[1px] bg-slate-800" />
+          <div className="h-10 w-[1.5px] bg-slate-800" />
 
           <div className="text-right">
-            <span className="text-[10px] text-slate-400 uppercase font-medium block">
-              Velocidade
+            <span className="text-xs sm:text-sm text-slate-300 font-extrabold uppercase tracking-wider block">
+              VELOCIDADE
             </span>
-            <span className="text-sm font-bold text-slate-200 font-mono tabular-nums">
-              {gpsMetrics.currentSpeedKmh.toFixed(1)} km/h
+            <span className="text-xl sm:text-2xl font-black text-cyan-400 font-mono tabular-nums leading-tight">
+              {gpsMetrics.currentSpeedKmh.toFixed(1)} <span className="text-xs font-bold text-slate-400">km/h</span>
             </span>
           </div>
         </div>
 
         {/* GPS Status Indicator & Quick Switch */}
-        <div className="flex items-center justify-between px-3 py-1 bg-slate-900/80 border border-slate-800/80 rounded-xl text-[10px] text-slate-400">
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center justify-between px-4 py-1.5 bg-slate-900/90 border border-slate-800 rounded-xl text-xs sm:text-sm text-slate-300">
+          <div className="flex items-center gap-2">
             <span
-              className={`w-2 h-2 rounded-full ${
+              className={`w-2.5 h-2.5 rounded-full ${
                 gpsMetrics.gpsStatus === 'active'
                   ? 'bg-emerald-400'
                   : gpsMetrics.gpsStatus === 'simulated'
@@ -664,9 +708,9 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
                   : 'bg-amber-400 animate-pulse'
               }`}
             />
-            <span className="font-medium text-slate-300">
+            <span className="font-bold text-slate-200">
               {gpsMetrics.gpsStatus === 'active'
-                ? `GPS Conectado (${gpsMetrics.accuracyMeters ? `±${Math.round(gpsMetrics.accuracyMeters)}m` : 'ativo'})`
+                ? `GPS Ativo (${gpsMetrics.accuracyMeters ? `±${Math.round(gpsMetrics.accuracyMeters)}m` : 'ótimo sinal'})`
                 : gpsMetrics.gpsStatus === 'simulated'
                 ? 'Modo Esteira / Virtual'
                 : gpsMetrics.gpsStatus === 'denied'
@@ -678,14 +722,14 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
           {isSimulatedGps ? (
             <button
               onClick={() => handleToggleGpsMode(false)}
-              className="text-cyan-400 font-bold hover:underline cursor-pointer"
+              className="text-cyan-400 font-black hover:underline cursor-pointer"
             >
               Usar GPS Real
             </button>
           ) : (
             <button
               onClick={() => handleToggleGpsMode(true)}
-              className="text-emerald-400 font-bold hover:underline cursor-pointer"
+              className="text-emerald-400 font-black hover:underline cursor-pointer"
             >
               Simular Esteira
             </button>
@@ -693,34 +737,34 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
         </div>
       </div>
 
-      {/* Center: Hero Countdown Timer & Phase */}
+      {/* Center: Hero Countdown Timer & Phase (Enlarged for Night & 40+ Vision) */}
       <div className="flex flex-col items-center justify-center my-auto text-center space-y-4 max-w-lg mx-auto w-full">
-        {/* Phase Badge */}
-        <div className="flex items-center gap-2">
+        {/* Phase Badge: Large, bold and high-contrast */}
+        <div className="flex items-center gap-3 bg-slate-900/90 border-2 border-slate-800 px-5 py-2.5 rounded-2xl shadow-md">
           <span
-            className="w-2.5 h-2.5 rounded-full"
+            className="w-4 h-4 rounded-full shadow-sm animate-pulse"
             style={{ backgroundColor: currentPhaseColor }}
           />
-          <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tight text-white">
+          <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tight text-white drop-shadow-sm">
             {currentCfg.label}
           </h2>
           {currentStep?.blockRepetitionIndex && (
-            <span className="text-xs text-slate-400 font-semibold ml-1">
+            <span className="text-base sm:text-lg text-amber-400 font-extrabold ml-1">
               ({currentStep.blockRepetitionIndex}/{currentStep.totalBlockRepetitions})
             </span>
           )}
         </div>
 
         {/* Massive Crisp Tabular Countdown */}
-        <div className="py-1">
-          <div className="font-mono text-8xl sm:text-9xl font-black text-white tracking-tighter tabular-nums">
+        <div className="py-0.5">
+          <div className="font-mono text-8xl sm:text-9xl font-black text-white tracking-tighter tabular-nums drop-shadow-md">
             {formatTimeDisplay(secondsRemaining)}
           </div>
         </div>
 
-        {/* Phase Step Progress Bar */}
-        <div className="w-full max-w-xs space-y-1.5">
-          <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+        {/* Phase Step Progress Bar with Big Clear Font */}
+        <div className="w-full max-w-sm space-y-2">
+          <div className="h-3 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
             <div
               style={{
                 width: `${stepProgressPct}%`,
@@ -729,22 +773,29 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
               className="h-full rounded-full transition-all duration-300"
             />
           </div>
-          <div className="flex justify-between text-[11px] text-slate-500 font-mono tabular-nums">
-            <span>Etapa {(currentStep?.stepIndexInFlattened ?? 0) + 1} de {currentStep?.totalFlattenedSteps ?? steps.length}</span>
-            <span>{(currentStep?.durationSeconds ?? 0) - secondsRemaining}s / {currentStep?.durationSeconds ?? 0}s</span>
+          <div className="flex justify-between text-sm sm:text-base font-extrabold text-slate-200 font-mono tabular-nums px-1">
+            <span className="text-slate-300">Etapa <strong className="text-white">{(currentStep?.stepIndexInFlattened ?? 0) + 1}</strong> de {currentStep?.totalFlattenedSteps ?? steps.length}</span>
+            <span className="text-emerald-400 font-black">{(currentStep?.durationSeconds ?? 0) - secondsRemaining}s / {currentStep?.durationSeconds ?? 0}s</span>
           </div>
         </div>
 
-        {/* Next Step Preview */}
+        {/* Next Step Preview: Big and High Contrast */}
         {nextStep && (
-          <div className="text-xs text-slate-400 flex items-center gap-2 pt-1 font-medium">
-            <span>A seguir:</span>
-            <span className="text-white font-semibold">
-              {PHASE_CONFIGS[nextStep.phase].label} ({formatTimeDisplay(nextStep.durationSeconds)})
-            </span>
+          <div className="w-full max-w-md bg-slate-900/95 border-2 border-slate-800/90 rounded-2xl px-5 py-3 flex items-center justify-between text-sm sm:text-base text-slate-300 font-semibold shadow-md">
+            <div className="flex items-center gap-2">
+              <span className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-400">
+                A seguir:
+              </span>
+              <span className="text-white font-extrabold text-base sm:text-lg">
+                {PHASE_CONFIGS[nextStep.phase].label}
+              </span>
+              <span className="text-amber-400 font-mono font-bold text-sm sm:text-base">
+                ({formatTimeDisplay(nextStep.durationSeconds)})
+              </span>
+            </div>
             {nextStep.blockRepetitionIndex && (
-              <span className="text-slate-500">
-                · repetição {nextStep.blockRepetitionIndex}
+              <span className="text-xs sm:text-sm font-bold bg-slate-800 text-slate-200 px-2.5 py-1 rounded-xl">
+                série {nextStep.blockRepetitionIndex}
               </span>
             )}
           </div>
@@ -817,44 +868,44 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
         >
           {/* Top Banner Alert */}
           <div className="w-full max-w-sm flex items-center justify-between pointer-events-none animate-fade-in">
-            <div className="flex items-center gap-2 bg-amber-500/95 text-slate-950 px-3.5 py-1.5 rounded-full font-black text-xs shadow-lg shadow-amber-500/20">
-              <Lock className="w-3.5 h-3.5 stroke-[2.5]" />
+            <div className="flex items-center gap-2 bg-amber-500 text-slate-950 px-4 py-2 rounded-full font-black text-xs sm:text-sm shadow-xl shadow-amber-500/25">
+              <Lock className="w-4 h-4 stroke-[3]" />
               <span>TELA BLOQUEADA</span>
             </div>
 
             {showUnlockTip && (
-              <span className="text-[11px] font-bold text-amber-300 bg-slate-950/90 px-3 py-1 rounded-full border border-amber-500/40 animate-bounce">
-                Toque no cadeado abaixo para destravar
+              <span className="text-xs sm:text-sm font-black text-amber-300 bg-slate-950/95 px-4 py-1.5 rounded-full border border-amber-500/60 animate-bounce shadow-xl">
+                Toque no botão abaixo
               </span>
             )}
           </div>
 
-          {/* Central subtle prompt if user accidentally taps elsewhere */}
+          {/* Central prompt if user accidentally taps elsewhere */}
           <div className="pointer-events-none text-center my-auto transition-opacity duration-300">
             {showUnlockTip ? (
-              <div className="bg-slate-950/90 border border-amber-500/50 text-amber-300 px-5 py-3 rounded-2xl shadow-2xl space-y-1 animate-pulse">
-                <Lock className="w-8 h-8 text-amber-400 mx-auto" />
-                <p className="font-black text-sm">Toque no cadeado para destravar a tela</p>
-                <p className="text-xs text-slate-400">Proteção contra toques acidentais ativa</p>
+              <div className="bg-slate-950/95 border-2 border-amber-500 text-amber-300 px-6 py-4 rounded-3xl shadow-2xl space-y-1.5 animate-pulse max-w-xs mx-auto">
+                <Lock className="w-10 h-10 text-amber-400 mx-auto" />
+                <p className="font-black text-base sm:text-lg">Toque no cadeado abaixo para destravar</p>
+                <p className="text-xs sm:text-sm text-slate-300 font-semibold">Proteção contra toques ativada</p>
               </div>
             ) : null}
           </div>
 
           {/* Floating Dedicated Unlock Button: The ONLY clickable element on screen */}
-          <div className="w-full max-w-xs flex flex-col items-center gap-2 pb-6">
+          <div className="w-full max-w-sm flex flex-col items-center gap-2.5 pb-6">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 toggleScreenLock();
               }}
-              className="px-6 py-3.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm flex items-center gap-3 shadow-2xl shadow-amber-500/40 transition-transform active:scale-95 cursor-pointer pointer-events-auto border-2 border-amber-300"
+              className="w-full py-4 px-6 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-base sm:text-lg flex items-center justify-center gap-3 shadow-2xl shadow-amber-500/50 transition-transform active:scale-95 cursor-pointer pointer-events-auto border-2 border-amber-300"
               title="Toque aqui para destravar a tela"
             >
-              <Lock className="w-5 h-5 fill-slate-950 stroke-[2.5]" />
+              <Lock className="w-6 h-6 fill-slate-950 stroke-[2.5]" />
               <span>DESTRAVAR TELA</span>
             </button>
-            <span className="text-[11px] font-semibold text-slate-400 text-center drop-shadow pointer-events-none">
-              Toques acidentais bloqueados • Treino e som continuam ativos
+            <span className="text-xs sm:text-sm font-bold text-slate-300 text-center drop-shadow pointer-events-none">
+              Toques acidentais bloqueados • Treino e áudio ativos
             </span>
           </div>
         </div>
