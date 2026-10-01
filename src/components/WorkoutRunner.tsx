@@ -13,6 +13,12 @@ import { GpsTrackerEngine } from '../utils/gpsTracker';
 import { AudioGpsSettingsModal } from './AudioGpsSettingsModal';
 import { RouteMiniMap } from './RouteMiniMap';
 import { useTheme } from '../context/ThemeContext';
+import { fetchCurrentWeather, WeatherInfo } from '../services/weatherService';
+import {
+  estimateCaloriesForSegment,
+  reconcileFinalCalories,
+} from '../utils/calorieCalculator';
+import { loadLocalProfile } from '../services/storage';
 import confetti from 'canvas-confetti';
 import {
   Play,
@@ -30,6 +36,10 @@ import {
   Navigation,
   Lock,
   Unlock,
+  Flame,
+  Sun,
+  Thermometer,
+  CloudSun,
 } from 'lucide-react';
 
 interface WorkoutRunnerProps {
@@ -59,6 +69,16 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
   const [beepsEnabled, setBeepsEnabled] = useState(!audioAlerts.isBeepsMuted());
   const [ttsEnabled, setTtsEnabled] = useState(!audioAlerts.isTtsMuted());
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Athlete Profile & Weight for Calorie Computation
+  const athleteProfile = useRef(loadLocalProfile()).current;
+  const athleteWeightKg = athleteProfile.weightKg || 70;
+
+  // Weather & Calorie States
+  const [weather, setWeather] = useState<WeatherInfo | null>(null);
+  const [caloriesBurned, setCaloriesBurned] = useState(0);
+  const caloriesBurnedRef = useRef(0);
+  caloriesBurnedRef.current = caloriesBurned;
 
   // GPS Tracking State
   const [isSimulatedGps, setIsSimulatedGps] = useState(false);
@@ -176,9 +196,37 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
     gpsTrackerRef.current = tracker;
     tracker.startTracking(false);
 
+    let hasFetchedWeather = false;
+
     const unsubscribe = tracker.subscribe((metrics) => {
       setGpsMetrics(metrics);
+
+      // Fetch outdoor weather & temperature when coordinate becomes available
+      if (metrics.currentCoord && !hasFetchedWeather) {
+        hasFetchedWeather = true;
+        fetchCurrentWeather(metrics.currentCoord.lat, metrics.currentCoord.lng).then((w) => {
+          if (w) setWeather(w);
+        }).catch(() => {});
+      }
     });
+
+    // Also trigger initial weather fetch using browser geolocation or default
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          fetchCurrentWeather(pos.coords.latitude, pos.coords.longitude).then((w) => {
+            if (w) setWeather(w);
+          }).catch(() => {});
+        },
+        () => {
+          // If permission prompt waiting or simulated, fallback to standard outdoor weather estimate
+          fetchCurrentWeather(-23.55052, -46.633308).then((w) => {
+            if (w) setWeather(w);
+          }).catch(() => {});
+        },
+        { timeout: 5000 }
+      );
+    }
 
     // Announce first step & activate background keep-alive audio loop
     if (steps.length > 0) {
@@ -243,15 +291,34 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       totalElapsedRef.current = nextTotal;
       setTotalElapsedSeconds(nextTotal);
 
+      let currentSpeed = 0;
+      let currentDistance = 0;
+
       if (gpsTrackerRef.current) {
         const m = gpsTrackerRef.current.getMetrics(nextTotal);
         setGpsMetrics(m);
+        currentSpeed = m.currentSpeedKmh;
+        currentDistance = m.distanceMeters;
+      }
+
+      // Increment calories burned based on current exercise phase & real GPS speed
+      const activeIdx = currentStepIndexRef.current;
+      const activeStep = steps[activeIdx];
+      if (activeStep) {
+        const segKcalPerSec = estimateCaloriesForSegment(
+          activeStep.phase,
+          1,
+          athleteWeightKg,
+          currentSpeed,
+          weather?.temperatureC
+        );
+        const nextCal = caloriesBurnedRef.current + segKcalPerSec;
+        caloriesBurnedRef.current = nextCal;
+        setCaloriesBurned(Math.round(nextCal));
       }
 
       // 2. Decrement step seconds
       const currentRemaining = secondsRemainingRef.current;
-      const activeIdx = currentStepIndexRef.current;
-      const activeStep = steps[activeIdx];
       const upcomingStep = steps[activeIdx + 1];
 
       if (!activeStep) return;
@@ -301,6 +368,13 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
             trackPoints: [],
           };
 
+          const finalCalories = reconcileFinalCalories(
+            caloriesBurnedRef.current,
+            finalMetrics.distanceMeters,
+            nextTotal,
+            athleteWeightKg
+          );
+
           const runPayload = {
             id: `run_${Date.now()}`,
             workoutId: workout.id,
@@ -312,6 +386,10 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
             stepsCompleted: steps.length,
             totalSteps: steps.length,
             completedAt: Date.now(),
+            caloriesBurned: finalCalories,
+            temperatureC: weather?.temperatureC,
+            weatherDescription: weather?.description,
+            weatherIcon: weather?.conditionIcon,
             gpsTrack: finalMetrics.trackPoints || [],
           };
 
@@ -495,18 +573,28 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
             </h2>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 grid grid-cols-2 gap-3 text-left">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-left">
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80">
               <span className="text-[11px] text-slate-400 block mb-0.5">Tempo Total</span>
-              <span className="text-2xl font-black text-white font-mono tabular-nums">
+              <span className="text-xl sm:text-2xl font-black text-white font-mono tabular-nums">
                 {formatTimeDisplay(totalElapsedSeconds)}
               </span>
             </div>
 
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80">
               <span className="text-[11px] text-slate-400 block mb-0.5">Distância GPS</span>
-              <span className={`text-2xl font-black font-mono tabular-nums ${themeConfig.accentText}`}>
+              <span className={`text-xl sm:text-2xl font-black font-mono tabular-nums ${themeConfig.accentText}`}>
                 {gpsMetrics.formattedDistance}
+              </span>
+            </div>
+
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80">
+              <span className="text-[11px] text-slate-400 block mb-0.5 flex items-center gap-1">
+                <Flame className="w-3.5 h-3.5 text-orange-400" />
+                <span>Queima Calórica</span>
+              </span>
+              <span className="text-xl sm:text-2xl font-black text-orange-400 font-mono tabular-nums">
+                {reconcileFinalCalories(caloriesBurned, gpsMetrics.distanceMeters, totalElapsedSeconds, athleteWeightKg)} <span className="text-xs font-bold text-slate-400">kcal</span>
               </span>
             </div>
 
@@ -521,6 +609,16 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
               <span className="text-[11px] text-slate-400 block mb-0.5">Etapas Concluídas</span>
               <span className="text-base font-bold text-white font-mono tabular-nums">
                 {steps.length} / {steps.length}
+              </span>
+            </div>
+
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80">
+              <span className="text-[11px] text-slate-400 block mb-0.5 flex items-center gap-1">
+                <Thermometer className="w-3.5 h-3.5 text-sky-400" />
+                <span>Clima no Local</span>
+              </span>
+              <span className="text-base font-bold text-sky-300 font-mono tabular-nums">
+                {weather ? `${weather.temperatureC}°C (${weather.description})` : 'Ao ar livre'}
               </span>
             </div>
           </div>
@@ -655,47 +753,48 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
         </div>
       </div>
 
-      {/* GPS Telemetry Bar - High Visibility for Outdoor Running */}
+      {/* GPS Telemetry Bar - High Visibility for Outdoor Running with Calories & Weather */}
       <div className="w-full max-w-md mx-auto z-10 space-y-2">
         <div 
           onClick={() => setIsSettingsOpen(true)}
-          className="bg-slate-900/95 border-2 border-slate-800 hover:border-slate-700 rounded-2xl px-6 py-3 flex items-center justify-between shadow-lg cursor-pointer transition-colors"
+          className="bg-slate-900/95 border-2 border-slate-800 hover:border-slate-700 rounded-2xl px-4 sm:px-6 py-3 flex items-center justify-between shadow-lg cursor-pointer transition-colors"
           title="Toque para configurar sons ou alternar modo de GPS"
         >
           <div className="text-left">
-            <span className="text-xs sm:text-sm text-slate-300 font-extrabold uppercase tracking-wider block">
+            <span className="text-[11px] sm:text-xs text-slate-400 font-extrabold uppercase tracking-wider block">
               DISTÂNCIA
             </span>
-            <span className="text-2xl sm:text-3xl font-black text-white font-mono tabular-nums leading-tight">
+            <span className="text-xl sm:text-2xl font-black text-white font-mono tabular-nums leading-tight">
               {gpsMetrics.formattedDistance}
             </span>
           </div>
 
-          <div className="h-10 w-[1.5px] bg-slate-800" />
+          <div className="h-8 w-[1.5px] bg-slate-800" />
 
           <div className="text-center">
-            <span className="text-xs sm:text-sm text-slate-300 font-extrabold uppercase tracking-wider block">
-              RITMO
+            <span className="text-[11px] sm:text-xs text-slate-400 font-extrabold uppercase tracking-wider block">
+              VELOCIDADE
             </span>
-            <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono tabular-nums leading-tight">
-              {gpsMetrics.averagePaceMinKm}
+            <span className="text-lg sm:text-xl font-black text-cyan-400 font-mono tabular-nums leading-tight">
+              {gpsMetrics.currentSpeedKmh.toFixed(1)} <span className="text-[10px] font-bold text-slate-400">km/h</span>
             </span>
           </div>
 
-          <div className="h-10 w-[1.5px] bg-slate-800" />
+          <div className="h-8 w-[1.5px] bg-slate-800" />
 
           <div className="text-right">
-            <span className="text-xs sm:text-sm text-slate-300 font-extrabold uppercase tracking-wider block">
-              VELOCIDADE
+            <span className="text-[11px] sm:text-xs text-slate-400 font-extrabold uppercase tracking-wider block flex items-center justify-end gap-1">
+              <Flame className="w-3 h-3 text-orange-400" />
+              <span>CALORIAS</span>
             </span>
-            <span className="text-xl sm:text-2xl font-black text-cyan-400 font-mono tabular-nums leading-tight">
-              {gpsMetrics.currentSpeedKmh.toFixed(1)} <span className="text-xs font-bold text-slate-400">km/h</span>
+            <span className="text-lg sm:text-xl font-black text-orange-400 font-mono tabular-nums leading-tight">
+              {caloriesBurned} <span className="text-[10px] font-bold text-slate-400">kcal</span>
             </span>
           </div>
         </div>
 
-        {/* GPS Status Indicator & Quick Switch */}
-        <div className="flex items-center justify-between px-4 py-1.5 bg-slate-900/90 border border-slate-800 rounded-xl text-xs sm:text-sm text-slate-300">
+        {/* GPS Status & Weather at Running Spot Indicator */}
+        <div className="flex items-center justify-between px-3.5 py-1.5 bg-slate-900/90 border border-slate-800 rounded-xl text-xs sm:text-sm text-slate-300">
           <div className="flex items-center gap-2">
             <span
               className={`w-2.5 h-2.5 rounded-full ${
@@ -708,30 +807,43 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
                   : 'bg-amber-400 animate-pulse'
               }`}
             />
-            <span className="font-bold text-slate-200">
+            <span className="font-bold text-slate-200 text-xs">
               {gpsMetrics.gpsStatus === 'active'
-                ? `GPS Ativo (${gpsMetrics.accuracyMeters ? `±${Math.round(gpsMetrics.accuracyMeters)}m` : 'ótimo sinal'})`
+                ? `GPS (${gpsMetrics.accuracyMeters ? `±${Math.round(gpsMetrics.accuracyMeters)}m` : 'ativo'})`
                 : gpsMetrics.gpsStatus === 'simulated'
-                ? 'Modo Esteira / Virtual'
+                ? 'Modo Esteira'
                 : gpsMetrics.gpsStatus === 'denied'
-                ? 'GPS Bloqueado no Navegador'
+                ? 'Sem GPS'
                 : 'Buscando satélites...'}
             </span>
+          </div>
+
+          {/* Local Weather & Temperature Pill */}
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 bg-slate-950/70 px-2 py-0.5 rounded-lg border border-slate-800">
+            <Thermometer className="w-3.5 h-3.5 text-sky-400" />
+            <span className="font-mono text-sky-300 font-bold">
+              {weather ? `${weather.temperatureC}°C` : '--°C'}
+            </span>
+            {weather?.description && (
+              <span className="text-[10px] text-slate-400 hidden xs:inline">
+                {weather.description}
+              </span>
+            )}
           </div>
 
           {isSimulatedGps ? (
             <button
               onClick={() => handleToggleGpsMode(false)}
-              className="text-cyan-400 font-black hover:underline cursor-pointer"
+              className="text-cyan-400 font-black text-xs hover:underline cursor-pointer"
             >
-              Usar GPS Real
+              GPS Real
             </button>
           ) : (
             <button
               onClick={() => handleToggleGpsMode(true)}
-              className="text-emerald-400 font-black hover:underline cursor-pointer"
+              className="text-emerald-400 font-black text-xs hover:underline cursor-pointer"
             >
-              Simular Esteira
+              Esteira
             </button>
           )}
         </div>

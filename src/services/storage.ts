@@ -111,6 +111,7 @@ export function loadLocalProfile(): any {
     vibrationEnabled: true,
     weeklyGoalKm: 15,
     runningLevel: 'intermediario',
+    weightKg: 70,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };

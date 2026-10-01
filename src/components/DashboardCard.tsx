@@ -1,5 +1,6 @@
 import React from 'react';
 import { DashboardSummary } from '../types/workout';
+import { Flame } from 'lucide-react';
 
 interface DashboardCardProps {
   dashboard: DashboardSummary;
@@ -9,14 +10,22 @@ interface DashboardCardProps {
 export const DashboardCard: React.FC<DashboardCardProps> = ({ dashboard }) => {
   return (
     <div className="bg-slate-900/95 border border-slate-800/90 rounded-2xl p-5 shadow-xl backdrop-blur-sm">
-      {/* Top Header: Total Time as Dominant Anchor */}
+      {/* Top Header: Total Time and Calories as Dominant Anchors */}
       <div className="flex items-baseline justify-between mb-4">
         <div>
           <span className="text-[11px] font-medium tracking-wider text-slate-400 uppercase block mb-1">
             Tempo Total Estimado
           </span>
-          <div className="text-3xl sm:text-4xl font-black text-white tracking-tight font-mono tabular-nums">
-            {dashboard.formattedTotalTime}
+          <div className="flex items-baseline gap-3">
+            <div className="text-3xl sm:text-4xl font-black text-white tracking-tight font-mono tabular-nums">
+              {dashboard.formattedTotalTime}
+            </div>
+            {dashboard.estimatedCalories != null && dashboard.estimatedCalories > 0 && (
+              <div className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-orange-500/15 border border-orange-500/30 text-orange-400 text-xs sm:text-sm font-extrabold font-mono">
+                <Flame className="w-3.5 h-3.5 fill-orange-400/20" />
+                <span>~{dashboard.estimatedCalories} kcal</span>
+              </div>
+            )}
           </div>
         </div>
 

@@ -5,6 +5,7 @@ import {
   WorkoutItem,
   PHASE_CONFIGS,
 } from '../types/workout';
+import { estimateCaloriesForSegment } from './calorieCalculator';
 
 export function formatTimeDisplay(totalSeconds: number): string {
   const mins = Math.floor(totalSeconds / 60);
@@ -92,6 +93,14 @@ export function calculateWorkoutDashboard(items: WorkoutItem[]): DashboardSummar
   const pctLowIntensity = totalSeconds > 0 ? (lowIntensitySeconds / totalSeconds) * 100 : 0;
   const pctRest = totalSeconds > 0 ? (restSeconds / totalSeconds) * 100 : 0;
 
+  // Calorie estimation based on standard 70kg athlete planned load
+  const estimatedCalories = Math.round(
+    estimateCaloriesForSegment('warmup', warmupSeconds, 70) +
+    estimateCaloriesForSegment('high_intensity', highIntensitySeconds, 70) +
+    estimateCaloriesForSegment('low_intensity', lowIntensitySeconds, 70) +
+    estimateCaloriesForSegment('rest', restSeconds, 70)
+  );
+
   return {
     totalSeconds,
     formattedTotalTime: formatTimeSummaryHuman(totalSeconds),
@@ -109,6 +118,7 @@ export function calculateWorkoutDashboard(items: WorkoutItem[]): DashboardSummar
     pctLowIntensity,
     pctRest,
     totalRepetitionsCount,
+    estimatedCalories,
   };
 }
 

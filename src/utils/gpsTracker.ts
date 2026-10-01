@@ -339,6 +339,7 @@ export class GpsTrackerEngine {
       gpsStatus: this.status,
       accuracyMeters: this.latestAccuracy,
       trackPoints: [...this.trackPoints],
+      currentCoord: this.lastCoord ? { lat: this.lastCoord.lat, lng: this.lastCoord.lng } : (this.isSimulated ? { lat: this.simLat, lng: this.simLng } : undefined),
     };
   }
 

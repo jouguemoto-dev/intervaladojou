@@ -49,6 +49,7 @@ export interface AthleteProfile {
   vibrationEnabled: boolean;
   weeklyGoalKm: number;
   runningLevel: 'iniciante' | 'intermediario' | 'avancado';
+  weightKg?: number; // For accurate calorie expenditure
   dailyGoal?: {
     type: 'time' | 'steps';
     targetMinutes: number;
@@ -71,6 +72,10 @@ export interface RunHistoryItem {
   stepsCompleted: number;
   totalSteps: number;
   completedAt: number;
+  caloriesBurned?: number;
+  temperatureC?: number;
+  weatherDescription?: string;
+  weatherIcon?: string;
   gpsTrack?: TrackPoint[];
 }
 

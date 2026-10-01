@@ -145,6 +145,11 @@ export interface GpsRunMetrics {
   gpsStatus: 'active' | 'searching' | 'simulated' | 'denied' | 'disabled';
   accuracyMeters: number | null;
   trackPoints?: TrackPoint[];
+  currentCoord?: { lat: number; lng: number };
+  caloriesBurned?: number;
+  temperatureC?: number;
+  weatherDescription?: string;
+  weatherIcon?: string;
 }
 
 export interface DashboardSummary {
@@ -172,4 +177,7 @@ export interface DashboardSummary {
 
   // Repetition cycles count
   totalRepetitionsCount: number;
+
+  // Estimated planned calorie expenditure (kcal)
+  estimatedCalories?: number;
 }

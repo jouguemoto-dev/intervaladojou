@@ -66,6 +66,7 @@ export const UserAccountModal: React.FC<UserAccountModalProps> = ({
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState(profile?.displayName || '');
   const [weeklyGoalKm, setWeeklyGoalKm] = useState(profile?.weeklyGoalKm || 15);
+  const [weightKg, setWeightKg] = useState(profile?.weightKg || 70);
   const [runningLevel, setRunningLevel] = useState<AthleteProfile['runningLevel']>(
     profile?.runningLevel || 'intermediario'
   );
@@ -84,6 +85,7 @@ export const UserAccountModal: React.FC<UserAccountModalProps> = ({
     if (profile) {
       setDisplayName(profile.displayName || '');
       setWeeklyGoalKm(profile.weeklyGoalKm || 15);
+      setWeightKg(profile.weightKg || 70);
       setRunningLevel(profile.runningLevel || 'intermediario');
       setSoundProfile(profile.soundProfile || 'whistle');
     }
@@ -242,6 +244,7 @@ export const UserAccountModal: React.FC<UserAccountModalProps> = ({
       const updated = await syncUserProfile(currentUser, {
         displayName: displayName.trim() || 'Atleta',
         weeklyGoalKm: Number(weeklyGoalKm) || 15,
+        weightKg: Number(weightKg) || 70,
         runningLevel,
         soundProfile,
       });
@@ -514,25 +517,49 @@ export const UserAccountModal: React.FC<UserAccountModalProps> = ({
                 </div>
               </div>
 
-              {/* Weekly Goal */}
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                    Meta Semanal de Corrida
-                  </label>
-                  <span className="text-xs font-black text-emerald-400 font-mono">
-                    {weeklyGoalKm} km / semana
+              {/* Weekly Goal & Weight */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      Meta Semanal
+                    </label>
+                    <span className="text-xs font-black text-emerald-400 font-mono">
+                      {weeklyGoalKm} km
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="60"
+                    step="5"
+                    value={weeklyGoalKm}
+                    onChange={(e) => setWeeklyGoalKm(parseInt(e.target.value))}
+                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      Peso do Atleta (kg)
+                    </label>
+                    <span className="text-xs font-black text-amber-400 font-mono">
+                      {weightKg} kg
+                    </span>
+                  </div>
+                  <input
+                    type="number"
+                    min="35"
+                    max="180"
+                    value={weightKg}
+                    onChange={(e) => setWeightKg(Math.max(30, parseInt(e.target.value) || 70))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-amber-500 font-mono"
+                  />
+                  <span className="text-[10px] text-slate-500 block mt-0.5">
+                    Utilizado para precisão no cálculo de queima calórica (MET).
                   </span>
                 </div>
-                <input
-                  type="range"
-                  min="5"
-                  max="60"
-                  step="5"
-                  value={weeklyGoalKm}
-                  onChange={(e) => setWeeklyGoalKm(parseInt(e.target.value))}
-                  className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                />
               </div>
 
               {/* Preferred Sound Profile */}

@@ -31,6 +31,7 @@ export const DailyGoalCard: React.FC = () => {
   const [todaySeconds, setTodaySeconds] = useState(0);
   const [todaySteps, setTodaySteps] = useState(0);
   const [todayRunsCount, setTodayRunsCount] = useState(0);
+  const [todayCalories, setTodayCalories] = useState(0);
 
   // Calculate start of today in local time
   const getStartOfToday = () => {
@@ -47,9 +48,11 @@ export const DailyGoalCard: React.FC = () => {
       const todayList = list.filter((r) => r.completedAt >= startOfToday);
       const secs = todayList.reduce((acc, r) => acc + (r.totalElapsedSeconds || 0), 0);
       const stps = todayList.reduce((acc, r) => acc + (r.stepsCompleted || 0), 0);
+      const cals = todayList.reduce((acc, r) => acc + (r.caloriesBurned || Math.round((r.distanceMeters / 1000) * 70 * 1.036) || 0), 0);
       setTodaySeconds(secs);
       setTodaySteps(stps);
       setTodayRunsCount(todayList.length);
+      setTodayCalories(cals);
     };
 
     const localRuns = loadLocalRunHistory();
@@ -277,14 +280,14 @@ export const DailyGoalCard: React.FC = () => {
         />
       </div>
 
-      {/* Subtext info */}
+      {/* Subtext info with Today's Calories */}
       <div className="mt-2 flex items-center justify-between text-[10px] text-slate-400 font-medium">
         <span className="flex items-center gap-1">
-          <Flame className="w-3 h-3 text-amber-400" />
+          <Flame className="w-3 h-3 text-orange-400" />
           <span>
             {todayRunsCount === 0
-              ? 'Nenhum treino hoje ainda'
-              : `${todayRunsCount} treino${todayRunsCount > 1 ? 's' : ''} hoje`}
+              ? 'Nenhum treino hoje'
+              : `${todayRunsCount} treino${todayRunsCount > 1 ? 's' : ''} (${todayCalories} kcal)`}
           </span>
         </span>
 
