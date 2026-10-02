@@ -40,6 +40,7 @@ import {
   Sun,
   Thermometer,
   CloudSun,
+  Clock,
 } from 'lucide-react';
 
 interface WorkoutRunnerProps {
@@ -64,6 +65,14 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
   const [totalElapsedSeconds, setTotalElapsedSeconds] = useState(0);
   const [isScreenLockedOn, setIsScreenLockedOn] = useState(false);
   const [showUnlockTip, setShowUnlockTip] = useState(false);
+  const [timerDisplayMode, setTimerDisplayMode] = useState<'countdown' | 'elapsed'>('countdown');
+
+  // Real-time timestamp anchors for guaranteed atomic precision against atomic clock
+  const workoutStartTimeRef = useRef(Date.now());
+  const stepStartTimeRef = useRef(Date.now());
+  const pausedAtRef = useRef<number | null>(null);
+  const totalPausedMsRef = useRef(0);
+  const stepPausedMsRef = useRef(0);
 
   // Audio & TTS toggles
   const [beepsEnabled, setBeepsEnabled] = useState(!audioAlerts.isBeepsMuted());
@@ -275,6 +284,13 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
   // Track seconds remaining via ref to enable robust calculations even when screen sleeps
   const secondsRemainingRef = useRef(steps[0]?.durationSeconds || 0);
 
+  // Synchronize GPS tracker with pause state
+  useEffect(() => {
+    if (gpsTrackerRef.current) {
+      gpsTrackerRef.current.setPaused(isPaused);
+    }
+  }, [isPaused]);
+
   // BULLETPROOF BACKGROUND TIMER VIA WEB WORKER WITH TIMESTAMP DRIFT COMPENSATION
   // Runs continuously in second plan even if screen is locked or phone is in user's pocket
   useEffect(() => {
@@ -282,14 +298,34 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
 
     let worker: Worker | null = null;
     let fallbackInterval: any = null;
+    let watchdogTimer: any = null;
+    let blobUrl: string | null = null;
+    let workerHasTicked = false;
 
     const handleTick = () => {
       if (isPausedRef.current || isCompletedRef.current) return;
 
-      // 1. Advance total elapsed time
-      const nextTotal = totalElapsedRef.current + 1;
+      const now = Date.now();
+      const activeIdx = currentStepIndexRef.current;
+      const activeStep = steps[activeIdx];
+      if (!activeStep) return;
+
+      // 1. Advance total elapsed time using exact real-time delta from atomic clock
+      const nextTotal = Math.max(
+        0,
+        Math.floor((now - workoutStartTimeRef.current - totalPausedMsRef.current) / 1000)
+      );
       totalElapsedRef.current = nextTotal;
       setTotalElapsedSeconds(nextTotal);
+
+      // 2. Exact step elapsed and remaining seconds from real-time delta
+      const stepElapsed = Math.max(
+        0,
+        Math.floor((now - stepStartTimeRef.current - stepPausedMsRef.current) / 1000)
+      );
+      const currentRemaining = Math.max(0, activeStep.durationSeconds - stepElapsed);
+      secondsRemainingRef.current = currentRemaining;
+      setSecondsRemaining(currentRemaining);
 
       let currentSpeed = 0;
       let currentDistance = 0;
@@ -302,30 +338,22 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       }
 
       // Increment calories burned based on current exercise phase & real GPS speed
-      const activeIdx = currentStepIndexRef.current;
-      const activeStep = steps[activeIdx];
-      if (activeStep) {
-        const segKcalPerSec = estimateCaloriesForSegment(
-          activeStep.phase,
-          1,
-          athleteWeightKg,
-          currentSpeed,
-          weather?.temperatureC
-        );
-        const nextCal = caloriesBurnedRef.current + segKcalPerSec;
-        caloriesBurnedRef.current = nextCal;
-        setCaloriesBurned(Math.round(nextCal));
-      }
+      const segKcalPerSec = estimateCaloriesForSegment(
+        activeStep.phase,
+        1,
+        athleteWeightKg,
+        currentSpeed,
+        weather?.temperatureC
+      );
+      const nextCal = caloriesBurnedRef.current + segKcalPerSec;
+      caloriesBurnedRef.current = nextCal;
+      setCaloriesBurned(Math.round(nextCal));
 
-      // 2. Decrement step seconds
-      const currentRemaining = secondsRemainingRef.current;
       const upcomingStep = steps[activeIdx + 1];
 
-      if (!activeStep) return;
-
-      // Countdown ticks at 3, 2, 1
-      if (currentRemaining <= 4 && currentRemaining > 1) {
-        audioAlerts.playCountdownTick(currentRemaining - 1);
+      // Countdown audio ticks at 3, 2, 1
+      if (currentRemaining <= 3 && currentRemaining >= 1) {
+        audioAlerts.playCountdownTick(currentRemaining);
       }
 
       // Halfway motivational announcement
@@ -335,19 +363,23 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       }
 
       // 5 seconds notice for next phase
-      if (currentRemaining === 6 && upcomingStep) {
+      if (currentRemaining === 5 && upcomingStep) {
         audioAlerts.playVoiceCue('atencao');
         const nextCfg = PHASE_CONFIGS[upcomingStep.phase];
         audioAlerts.speak(`Atenção: ${nextCfg.label} em 5 segundos.`);
       }
 
       // Phase finished: advance or complete
-      if (currentRemaining <= 1) {
+      if (currentRemaining <= 0) {
         if (activeIdx + 1 < steps.length) {
           const nextIdx = activeIdx + 1;
           currentStepIndexRef.current = nextIdx;
           setCurrentStepIndex(nextIdx);
           const nextStp = steps[nextIdx];
+
+          // Reset step anchor for the new phase
+          stepStartTimeRef.current = Date.now();
+          stepPausedMsRef.current = 0;
           secondsRemainingRef.current = nextStp.durationSeconds;
           setSecondsRemaining(nextStp.durationSeconds);
           announceStepRef.current(nextStp);
@@ -417,23 +449,92 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
             // Confetti fallback
           }
         }
-      } else {
-        const nextRem = currentRemaining - 1;
-        secondsRemainingRef.current = nextRem;
-        setSecondsRemaining(nextRem);
       }
     };
 
+    const startFallbackInterval = () => {
+      if (fallbackInterval) return;
+      fallbackInterval = setInterval(() => {
+        handleTick();
+      }, 1000);
+    };
+
+    const workerScript = `
+      var isRunning = false;
+      var timerId = null;
+      var expectedTickTime = 0;
+      var targetInterval = 1000;
+
+      function scheduleNextTick() {
+        if (!isRunning) return;
+        var now = Date.now();
+        var nextDelay = Math.max(0, expectedTickTime - now);
+
+        timerId = setTimeout(function () {
+          if (!isRunning) return;
+          expectedTickTime += targetInterval;
+          self.postMessage({ type: 'tick', timestamp: Date.now() });
+          scheduleNextTick();
+        }, nextDelay);
+      }
+
+      self.onmessage = function (event) {
+        var data = event.data || {};
+        var command = data.command;
+        targetInterval = data.interval || 1000;
+
+        if (command === 'start') {
+          isRunning = true;
+          if (timerId !== null) {
+            clearTimeout(timerId);
+            timerId = null;
+          }
+          expectedTickTime = Date.now() + targetInterval;
+          scheduleNextTick();
+        } else if (command === 'stop') {
+          isRunning = false;
+          if (timerId !== null) {
+            clearTimeout(timerId);
+            timerId = null;
+          }
+        }
+      };
+    `;
+
     try {
-      worker = new Worker('/timer-worker.js');
+      const blob = new Blob([workerScript], { type: 'application/javascript' });
+      blobUrl = URL.createObjectURL(blob);
+      worker = new Worker(blobUrl);
+
       worker.onmessage = (e) => {
         if (e.data?.type === 'tick') {
+          workerHasTicked = true;
+          if (watchdogTimer) {
+            clearTimeout(watchdogTimer);
+            watchdogTimer = null;
+          }
+          if (fallbackInterval) {
+            clearInterval(fallbackInterval);
+            fallbackInterval = null;
+          }
           handleTick();
         }
       };
+
+      worker.onerror = () => {
+        startFallbackInterval();
+      };
+
       worker.postMessage({ command: 'start', interval: 1000 });
+
+      // Watchdog: If worker doesn't tick within 1.5s, engage fallback interval immediately
+      watchdogTimer = setTimeout(() => {
+        if (!workerHasTicked) {
+          startFallbackInterval();
+        }
+      }, 1500);
     } catch {
-      fallbackInterval = setInterval(handleTick, 1000);
+      startFallbackInterval();
     }
 
     return () => {
@@ -441,8 +542,14 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
         worker.postMessage({ command: 'stop' });
         worker.terminate();
       }
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl);
+      }
       if (fallbackInterval) {
         clearInterval(fallbackInterval);
+      }
+      if (watchdogTimer) {
+        clearTimeout(watchdogTimer);
       }
     };
   }, [isPaused, isCompleted, steps, workout.id, workout.name]);
@@ -451,11 +558,20 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
     audioAlerts.unlockAudio();
     setIsPaused((p) => {
       const next = !p;
+      const now = Date.now();
       if (next) {
+        pausedAtRef.current = now;
         audioAlerts.speak('Pausado');
       } else {
+        if (pausedAtRef.current !== null) {
+          const pauseDelta = now - pausedAtRef.current;
+          totalPausedMsRef.current += pauseDelta;
+          stepPausedMsRef.current += pauseDelta;
+          pausedAtRef.current = null;
+        }
         audioAlerts.speak('Continuando');
       }
+      gpsTrackerRef.current?.setPaused(next);
       return next;
     });
   };
@@ -468,6 +584,9 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       currentStepIndexRef.current = nextIdx;
       setCurrentStepIndex(nextIdx);
       const nextDur = steps[nextIdx].durationSeconds;
+
+      stepStartTimeRef.current = Date.now();
+      stepPausedMsRef.current = 0;
       secondsRemainingRef.current = nextDur;
       setSecondsRemaining(nextDur);
       announceStep(steps[nextIdx]);
@@ -481,15 +600,22 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
   const handlePreviousStep = () => {
     audioAlerts.unlockAudio();
     const activeIdx = currentStepIndexRef.current;
-    if (secondsRemaining < (currentStep?.durationSeconds || 0) - 3) {
-      const curDur = currentStep?.durationSeconds || 0;
-      secondsRemainingRef.current = curDur;
-      setSecondsRemaining(curDur);
+    const currentStepDuration = steps[activeIdx]?.durationSeconds || 0;
+    const stepElapsed = currentStepDuration - secondsRemainingRef.current;
+
+    if (stepElapsed > 3) {
+      stepStartTimeRef.current = Date.now();
+      stepPausedMsRef.current = 0;
+      secondsRemainingRef.current = currentStepDuration;
+      setSecondsRemaining(currentStepDuration);
     } else if (activeIdx > 0) {
       const prevIdx = activeIdx - 1;
       currentStepIndexRef.current = prevIdx;
       setCurrentStepIndex(prevIdx);
       const prevDur = steps[prevIdx].durationSeconds;
+
+      stepStartTimeRef.current = Date.now();
+      stepPausedMsRef.current = 0;
       secondsRemainingRef.current = prevDur;
       setSecondsRemaining(prevDur);
       announceStep(steps[prevIdx]);
@@ -641,6 +767,12 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
               onClick={() => {
                 currentStepIndexRef.current = 0;
                 totalElapsedRef.current = 0;
+                const now = Date.now();
+                workoutStartTimeRef.current = now;
+                stepStartTimeRef.current = now;
+                totalPausedMsRef.current = 0;
+                stepPausedMsRef.current = 0;
+                pausedAtRef.current = null;
                 const firstDur = steps[0]?.durationSeconds || 0;
                 secondsRemainingRef.current = firstDur;
                 setCurrentStepIndex(0);
@@ -849,10 +981,10 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
         </div>
       </div>
 
-      {/* Center: Hero Countdown Timer & Phase (Enlarged for Night & 40+ Vision) */}
-      <div className="flex flex-col items-center justify-center my-auto text-center space-y-4 max-w-lg mx-auto w-full">
+      {/* Center: Hero Countdown Timer & Phase (High Visibility for Outdoor Running) */}
+      <div className="flex flex-col items-center justify-center my-auto text-center space-y-5 max-w-lg mx-auto w-full">
         {/* Phase Badge: Large, bold and high-contrast */}
-        <div className="flex items-center gap-3 bg-slate-900/90 border-2 border-slate-800 px-5 py-2.5 rounded-2xl shadow-md">
+        <div className="flex items-center gap-3 bg-slate-900/90 border-2 border-slate-800 px-6 py-3 rounded-2xl shadow-md">
           <span
             className="w-4 h-4 rounded-full shadow-sm animate-pulse"
             style={{ backgroundColor: currentPhaseColor }}
@@ -867,31 +999,61 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
           )}
         </div>
 
-        {/* Massive Crisp Tabular Countdown */}
-        <div className="py-0.5">
-          <div className="font-mono text-8xl sm:text-9xl font-black text-white tracking-tighter tabular-nums drop-shadow-md">
-            {formatTimeDisplay(secondsRemaining)}
+        {/* Interactive Mode Switcher & Time Display (Tap to toggle Regressivo/Progressivo) */}
+        <div 
+          onClick={() => setTimerDisplayMode(m => m === 'countdown' ? 'elapsed' : 'countdown')}
+          className="cursor-pointer group flex flex-col items-center select-none py-2"
+          title="Toque para alternar entre Cronômetro (Progressivo) e Tempo Restante (Regressivo)"
+        >
+          {/* Label indicating exactly what is being marked */}
+          <div className="flex items-center gap-2 text-xs sm:text-sm font-extrabold tracking-wider uppercase mb-1.5 px-4 py-1 rounded-full bg-slate-900 border border-slate-800 group-hover:border-cyan-500/50 transition-colors shadow-sm">
+            <Clock className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="text-slate-200">
+              {timerDisplayMode === 'countdown' ? 'Tempo Restante (Regressivo)' : 'Tempo Decorrido (Cronômetro)'}
+            </span>
+            <span className="text-[10px] text-cyan-400 font-bold underline ml-1">alternar</span>
+          </div>
+
+          {/* Massive Crisp Tabular Numbers */}
+          <div className="font-mono text-8xl sm:text-9xl font-black text-white tracking-tighter tabular-nums drop-shadow-md group-hover:scale-[1.01] transition-transform">
+            {timerDisplayMode === 'countdown' 
+              ? formatTimeDisplay(secondsRemaining)
+              : formatTimeDisplay(Math.max(0, (currentStep?.durationSeconds ?? 0) - secondsRemaining))
+            }
+          </div>
+
+          {/* Secondary Time Info so user ALWAYS sees both metrics clearly */}
+          <div className="text-xs sm:text-sm text-slate-400 font-bold font-mono tabular-nums mt-1">
+            {timerDisplayMode === 'countdown' ? (
+              <span>Decorrido: <strong className="text-white">{formatTimeDisplay(Math.max(0, (currentStep?.durationSeconds ?? 0) - secondsRemaining))}</strong> de {formatTimeDisplay(currentStep?.durationSeconds ?? 0)}</span>
+            ) : (
+              <span>Restante: <strong className="text-white">{formatTimeDisplay(secondsRemaining)}</strong> de {formatTimeDisplay(currentStep?.durationSeconds ?? 0)}</span>
+            )}
           </div>
         </div>
 
-        {/* Phase Step Progress Bar with Big Clear Font */}
+        {/* Phase Step Progress Bar with Smooth Linear Glide */}
         <div className="w-full max-w-sm space-y-2">
-          <div className="h-3 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+          <div className="h-3.5 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
             <div
               style={{
                 width: `${stepProgressPct}%`,
                 backgroundColor: currentPhaseColor,
               }}
-              className="h-full rounded-full transition-all duration-300"
+              className="h-full rounded-full transition-[width] duration-1000 ease-linear"
             />
           </div>
           <div className="flex justify-between text-sm sm:text-base font-extrabold text-slate-200 font-mono tabular-nums px-1">
-            <span className="text-slate-300">Etapa <strong className="text-white">{(currentStep?.stepIndexInFlattened ?? 0) + 1}</strong> de {currentStep?.totalFlattenedSteps ?? steps.length}</span>
-            <span className="text-emerald-400 font-black">{(currentStep?.durationSeconds ?? 0) - secondsRemaining}s / {currentStep?.durationSeconds ?? 0}s</span>
+            <span className="text-slate-300">
+              Etapa <strong className="text-white">{(currentStep?.stepIndexInFlattened ?? 0) + 1}</strong> de {currentStep?.totalFlattenedSteps ?? steps.length}
+            </span>
+            <span className="text-emerald-400 font-black">
+              {(currentStep?.durationSeconds ?? 0) - secondsRemaining}s / {currentStep?.durationSeconds ?? 0}s
+            </span>
           </div>
         </div>
 
-        {/* Next Step Preview: Big and High Contrast */}
+        {/* Next Step Preview */}
         {nextStep && (
           <div className="w-full max-w-md bg-slate-900/95 border-2 border-slate-800/90 rounded-2xl px-5 py-3 flex items-center justify-between text-sm sm:text-base text-slate-300 font-semibold shadow-md">
             <div className="flex items-center gap-2">
@@ -916,12 +1078,12 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
 
       {/* Bottom Controls Bar */}
       <div className="w-full max-w-md mx-auto z-10 pb-4">
-        {/* Total Progress Track */}
+        {/* Total Progress Track with Continuous Linear Glide */}
         <div className="mb-5 space-y-1">
-          <div className="h-1 w-full bg-slate-900 rounded-full overflow-hidden">
+          <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden">
             <div
               style={{ width: `${totalProgressPct}%` }}
-              className={`h-full ${themeConfig.accentBg} rounded-full transition-all duration-300`}
+              className={`h-full ${themeConfig.accentBg} rounded-full transition-[width] duration-1000 ease-linear`}
             />
           </div>
         </div>

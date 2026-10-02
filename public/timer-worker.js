@@ -1,22 +1,20 @@
 // Background Web Worker for bulletproof timer execution
 // Browsers throttle setInterval/setTimeout to 1s or freeze them completely when screen locks or tab loses focus.
 // Web Workers run in a distinct background thread and are NOT throttled by screen lock.
-// This worker uses self-correcting drift compensation based on performance.now() / Date.now()
-// so even if the operating system throttles thread ticks, the worker immediately catches up.
+// Uses self-correcting timestamp drift compensation based on Date.now().
 
+var isRunning = false;
 var timerId = null;
 var expectedTickTime = 0;
 var targetInterval = 1000;
 
 function scheduleNextTick() {
-  if (timerId === null) return;
+  if (!isRunning) return;
   var now = Date.now();
-  var drift = now - expectedTickTime;
-  // If next tick is already in the past due to heavy OS throttling, fire immediately
-  var nextDelay = Math.max(0, targetInterval - drift);
+  var nextDelay = Math.max(0, expectedTickTime - now);
 
   timerId = setTimeout(function () {
-    if (timerId === null) return;
+    if (!isRunning) return;
     expectedTickTime += targetInterval;
     self.postMessage({ type: 'tick', timestamp: Date.now() });
     scheduleNextTick();
@@ -29,6 +27,7 @@ self.onmessage = function (event) {
   targetInterval = data.interval || 1000;
 
   if (command === 'start') {
+    isRunning = true;
     if (timerId !== null) {
       clearTimeout(timerId);
       timerId = null;
@@ -36,6 +35,7 @@ self.onmessage = function (event) {
     expectedTickTime = Date.now() + targetInterval;
     scheduleNextTick();
   } else if (command === 'stop') {
+    isRunning = false;
     if (timerId !== null) {
       clearTimeout(timerId);
       timerId = null;

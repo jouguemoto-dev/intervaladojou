@@ -42,7 +42,7 @@ export function formatPaceMinKm(meters: number, totalSeconds: number): string {
   const km = meters / 1000;
   const secondsPerKm = totalSeconds / km;
 
-  if (secondsPerKm > 3600) return '--:-- /km'; // Parado ou muito lento (> 60 min/km)
+  if (secondsPerKm > 3600) return '--:-- /km'; // Stopped or extremely slow (> 60 min/km)
 
   const mins = Math.floor(secondsPerKm / 60);
   const secs = Math.floor(secondsPerKm % 60);
@@ -68,6 +68,14 @@ export class GpsTrackerEngine {
   private simLng = -46.633308;
   private simHeading = 0.5; // Radians
 
+  // Anti-Drift and Stationary Jitter Suppression
+  private isPaused = false;
+  private isStationary = true;
+  private stationaryAnchor: Coordinate | null = null;
+  private consecutiveMovementTicks = 0;
+  private consecutiveStationaryTicks = 0;
+  private lastPositionReceivedAt = 0;
+
   private listeners: ((metrics: GpsRunMetrics) => void)[] = [];
 
   public startTracking(preferSimulation = false) {
@@ -77,6 +85,12 @@ export class GpsTrackerEngine {
     this.latestSpeedKmh = 0;
     this.trackPoints = [];
     this.lastRecordedTime = 0;
+    this.isStationary = true;
+    this.stationaryAnchor = null;
+    this.consecutiveMovementTicks = 0;
+    this.consecutiveStationaryTicks = 0;
+    this.lastPositionReceivedAt = 0;
+    this.isPaused = false;
 
     if (preferSimulation) {
       this.startSimulatedGps();
@@ -92,7 +106,7 @@ export class GpsTrackerEngine {
     this.status = 'searching';
     this.notify();
 
-    // 1. Immediately request initial fix with fallback for cached / fast location
+    // 1. Initial fix request
     try {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -104,14 +118,14 @@ export class GpsTrackerEngine {
         {
           enableHighAccuracy: true,
           timeout: 10000,
-          maximumAge: 5000,
+          maximumAge: 4000,
         }
       );
     } catch (e) {
       console.warn('getCurrentPosition error:', e);
     }
 
-    // 2. Start active watchPosition with high accuracy and fast refresh
+    // 2. Active watchPosition stream
     try {
       this.watchId = navigator.geolocation.watchPosition(
         (position) => {
@@ -131,33 +145,54 @@ export class GpsTrackerEngine {
       this.notify();
     }
 
-    // 3. Robust background mobile fallback polling:
-    // When screen locks or browser tab loses focus, mobile OS might throttle watchPosition.
-    // Periodic getCurrentPosition keeps the hardware GPS antenna active and feeds missed distance.
+    // 3. Keep-alive watchdog fallback:
+    // Only fires if watchPosition has gone completely silent for > 8 seconds
+    // to prevent concurrent overlapping GPS calls that cause artificial coordinate jitter.
     this.fallbackPollId = setInterval(() => {
-      if (this.isSimulated || this.status === 'denied' || this.status === 'disabled') return;
+      if (this.isSimulated || this.status === 'denied' || this.status === 'disabled' || this.isPaused) return;
+      const now = Date.now();
+      if (now - this.lastPositionReceivedAt < 8000) return;
+
       if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
         navigator.geolocation.getCurrentPosition(
           (pos) => this.processPosition(pos),
-          () => {}, // ignore occasional timeout
+          () => {},
           {
             enableHighAccuracy: true,
             timeout: 5000,
-            maximumAge: 2000,
+            maximumAge: 3000,
           }
         );
       }
-    }, 3000);
+    }, 5000);
+  }
+
+  public setPaused(paused: boolean) {
+    this.isPaused = paused;
+    if (paused) {
+      this.latestSpeedKmh = 0;
+      this.isStationary = true;
+      if (this.lastCoord) {
+        this.stationaryAnchor = { ...this.lastCoord };
+      }
+      this.notify();
+    }
   }
 
   private processPosition(position: GeolocationPosition) {
     const { latitude, longitude, accuracy, speed } = position.coords;
     const now = position.timestamp || Date.now();
+    this.lastPositionReceivedAt = Date.now();
 
     this.latestAccuracy = accuracy;
 
-    // Filter out very poor satellite signals (accuracy > 65m) to avoid erratic jumps
-    if (accuracy > 65 && !this.lastCoord) {
+    // Discard stale or duplicate timestamps
+    if (this.lastCoord && position.timestamp && position.timestamp <= this.lastCoord.timestamp) {
+      return;
+    }
+
+    // Filter out very poor satellite signals (accuracy > 45m)
+    if (accuracy > 45 && !this.lastCoord) {
       this.status = 'searching';
       this.notify();
       return;
@@ -165,55 +200,125 @@ export class GpsTrackerEngine {
 
     this.status = 'active';
 
+    // If workout is paused, DO NOT accumulate distance or track points
+    if (this.isPaused) {
+      this.latestSpeedKmh = 0;
+      this.isStationary = true;
+      this.lastCoord = {
+        lat: latitude,
+        lng: longitude,
+        accuracy,
+        timestamp: now,
+      };
+      this.stationaryAnchor = { ...this.lastCoord };
+      this.notify();
+      return;
+    }
+
     if (this.lastCoord) {
-      const dist = calculateHaversineDistance(
+      const distFromLast = calculateHaversineDistance(
         this.lastCoord.lat,
         this.lastCoord.lng,
         latitude,
         longitude
       );
 
-      const timeDeltaSeconds = Math.max(0.2, (now - this.lastCoord.timestamp) / 1000);
-      const calculatedSpeedMs = dist / timeDeltaSeconds;
+      const timeDeltaSeconds = Math.max(0.3, (now - this.lastCoord.timestamp) / 1000);
+      const calculatedSpeedMs = distFromLast / timeDeltaSeconds;
 
-      // Smart noise and GPS drift filter:
-      // 1. Min movement threshold: ignore tiny stationary noise (below 1.8 meters)
-      // 2. Max plausible human running speed: discard teleports (> 11.5 m/s or ~41 km/h) unless high precision
-      const isTeleportAnomaly = calculatedSpeedMs > 12 && accuracy > 20;
-      const isNoise = dist < Math.max(1.8, (accuracy || 10) * 0.25);
+      // Hardware speed evaluation:
+      // Modern mobile devices provide position.coords.speed in m/s
+      const hasHardwareSpeed = speed !== null && speed !== undefined && !isNaN(speed) && speed >= 0;
+      const hwSpeedMs = hasHardwareSpeed ? (speed as number) : null;
 
-      if (!isNoise && !isTeleportAnomaly) {
-        this.totalDistanceMeters += dist;
+      // Device indicates stopped if hardware speed is below 0.65 m/s (~2.3 km/h)
+      // or if calculated displacement speed is below 0.75 m/s (~2.7 km/h) and distance < 6m
+      const indicatesStopped =
+        (hwSpeedMs !== null && hwSpeedMs < 0.65) ||
+        (calculatedSpeedMs < 0.75 && distFromLast < 6.0);
 
-        if (speed !== null && speed >= 0) {
-          this.latestSpeedKmh = speed * 3.6;
+      // Discard impossible teleport / multipath reflection anomalies (> 12 m/s or ~43.2 km/h)
+      const isTeleportAnomaly = calculatedSpeedMs > 12.0 && accuracy > 12;
+
+      // ANTI-DRIFT STATIONARY ANCHOR FILTER:
+      // Eliminates false distance accumulation when user is standing still, resting, or indoors.
+      if (this.isStationary) {
+        if (!this.stationaryAnchor) {
+          this.stationaryAnchor = { ...this.lastCoord };
+        }
+
+        const distFromAnchor = calculateHaversineDistance(
+          this.stationaryAnchor.lat,
+          this.stationaryAnchor.lng,
+          latitude,
+          longitude
+        );
+
+        // Dynamic breakout radius: must travel outside satellite uncertainty bubble (min 8m, max 25m)
+        const breakoutRadius = Math.max(8.0, Math.min(25.0, (accuracy || 10) * 0.9));
+        const hasBreakoutSpeed =
+          (hwSpeedMs !== null && hwSpeedMs >= 0.8) || calculatedSpeedMs >= 0.85;
+
+        if (distFromAnchor > breakoutRadius && hasBreakoutSpeed && !isTeleportAnomaly) {
+          this.consecutiveMovementTicks++;
+          // Require 2 consecutive movement signals to confirm true departure from stationary position
+          if (this.consecutiveMovementTicks >= 2) {
+            this.isStationary = false;
+            this.stationaryAnchor = null;
+            this.consecutiveMovementTicks = 0;
+            this.consecutiveStationaryTicks = 0;
+
+            // Legitimate running movement confirmed!
+            this.totalDistanceMeters += distFromLast;
+            this.latestSpeedKmh =
+              hwSpeedMs !== null ? hwSpeedMs * 3.6 : Math.min(30, calculatedSpeedMs * 3.6);
+
+            this.lastCoord = { lat: latitude, lng: longitude, accuracy, timestamp: now };
+            this.recordTrackPoint(latitude, longitude, now);
+          } else {
+            this.latestSpeedKmh = 0;
+          }
         } else {
-          this.latestSpeedKmh = Math.min(32, calculatedSpeedMs * 3.6);
+          // Stationary: ZERO distance added, speed is 0.0 km/h
+          this.consecutiveMovementTicks = 0;
+          this.latestSpeedKmh = 0;
+          // Gently update anchor coordinate if user is resting with strong fix
+          if (accuracy < 12) {
+            this.lastCoord = { lat: latitude, lng: longitude, accuracy, timestamp: now };
+          }
         }
+      } else {
+        // User is currently moving
+        if (indicatesStopped) {
+          this.consecutiveStationaryTicks++;
+          if (this.consecutiveStationaryTicks >= 2 || (hwSpeedMs !== null && hwSpeedMs < 0.4)) {
+            // User came to a stop
+            this.isStationary = true;
+            this.stationaryAnchor = { lat: latitude, lng: longitude, accuracy, timestamp: now };
+            this.latestSpeedKmh = 0;
+            this.consecutiveStationaryTicks = 0;
+            this.consecutiveMovementTicks = 0;
+            this.lastCoord = { lat: latitude, lng: longitude, accuracy, timestamp: now };
+          } else {
+            this.latestSpeedKmh = 0;
+          }
+        } else if (!isTeleportAnomaly && distFromLast >= 2.0) {
+          // Genuine running/jogging/walking step
+          this.consecutiveStationaryTicks = 0;
+          this.totalDistanceMeters += distFromLast;
 
-        this.lastCoord = {
-          lat: latitude,
-          lng: longitude,
-          accuracy,
-          timestamp: now,
-        };
+          if (hwSpeedMs !== null) {
+            this.latestSpeedKmh = hwSpeedMs * 3.6;
+          } else {
+            this.latestSpeedKmh = Math.min(32, calculatedSpeedMs * 3.6);
+          }
 
-        // Record point for route trail every ~2.5 seconds or 8 meters
-        if (now - this.lastRecordedTime >= 2500 || dist >= 8) {
-          this.trackPoints.push({
-            lat: latitude,
-            lng: longitude,
-            timestamp: now,
-            phase: this.currentPhaseForSim,
-            speedKmh: Math.round(this.latestSpeedKmh * 10) / 10,
-          });
-          this.lastRecordedTime = now;
+          this.lastCoord = { lat: latitude, lng: longitude, accuracy, timestamp: now };
+          this.recordTrackPoint(latitude, longitude, now);
         }
-      } else if (dist < 1.5 && (speed === null || speed === 0)) {
-        // Runner paused or stopped
-        this.latestSpeedKmh = 0;
       }
     } else {
+      // First coordinate registered
       if (speed !== null && speed >= 0) {
         this.latestSpeedKmh = speed * 3.6;
       }
@@ -223,18 +328,26 @@ export class GpsTrackerEngine {
         accuracy,
         timestamp: now,
       };
+      this.stationaryAnchor = { ...this.lastCoord };
+      this.isStationary = speed === null || speed < 0.65;
 
-      this.trackPoints.push({
-        lat: latitude,
-        lng: longitude,
-        timestamp: now,
-        phase: this.currentPhaseForSim,
-        speedKmh: Math.round(this.latestSpeedKmh * 10) / 10,
-      });
-      this.lastRecordedTime = now;
+      this.recordTrackPoint(latitude, longitude, now);
     }
 
     this.notify();
+  }
+
+  private recordTrackPoint(lat: number, lng: number, timestamp: number) {
+    if (timestamp - this.lastRecordedTime >= 2500 || this.trackPoints.length === 0) {
+      this.trackPoints.push({
+        lat,
+        lng,
+        timestamp,
+        phase: this.currentPhaseForSim,
+        speedKmh: Math.round(this.latestSpeedKmh * 10) / 10,
+      });
+      this.lastRecordedTime = timestamp;
+    }
   }
 
   private handleGpsError(error: GeolocationPositionError) {
@@ -274,6 +387,12 @@ export class GpsTrackerEngine {
     });
 
     this.simulationInterval = setInterval(() => {
+      if (this.isPaused) {
+        this.latestSpeedKmh = 0;
+        this.notify();
+        return;
+      }
+
       // Estimated running pace per interval block
       let speedMs = 2.6; // ~9.4 km/h trote leve
       if (this.currentPhaseForSim === 'high_intensity') {
@@ -283,7 +402,7 @@ export class GpsTrackerEngine {
       } else if (this.currentPhaseForSim === 'walk') {
         speedMs = 1.4; // ~5.0 km/h caminhada
       } else if (this.currentPhaseForSim === 'rest') {
-        speedMs = 0;
+        speedMs = 0; // Pausa / descanso parado: velocidade 0 e distância 0
       }
 
       this.latestSpeedKmh = speedMs * 3.6;
@@ -294,7 +413,9 @@ export class GpsTrackerEngine {
         this.simHeading += (Math.random() - 0.48) * 0.08;
         // ~1 meter in latitude is approx 0.000009 degrees
         const deltaLat = (speedMs * Math.cos(this.simHeading)) / 111111;
-        const deltaLng = (speedMs * Math.sin(this.simHeading)) / (111111 * Math.cos((this.simLat * Math.PI) / 180));
+        const deltaLng =
+          (speedMs * Math.sin(this.simHeading)) /
+          (111111 * Math.cos((this.simLat * Math.PI) / 180));
 
         this.simLat += deltaLat;
         this.simLng += deltaLng;
@@ -339,7 +460,11 @@ export class GpsTrackerEngine {
       gpsStatus: this.status,
       accuracyMeters: this.latestAccuracy,
       trackPoints: [...this.trackPoints],
-      currentCoord: this.lastCoord ? { lat: this.lastCoord.lat, lng: this.lastCoord.lng } : (this.isSimulated ? { lat: this.simLat, lng: this.simLng } : undefined),
+      currentCoord: this.lastCoord
+        ? { lat: this.lastCoord.lat, lng: this.lastCoord.lng }
+        : this.isSimulated
+        ? { lat: this.simLat, lng: this.simLng }
+        : undefined,
     };
   }
 
