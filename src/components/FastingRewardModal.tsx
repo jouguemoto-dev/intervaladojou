@@ -121,36 +121,36 @@ export const FastingRewardModal: React.FC<FastingRewardModalProps> = ({
                 </div>
               )}
 
-              {/* Exact user benefit explanation of what was good */}
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl space-y-1">
-                <span className="text-[11px] font-black uppercase tracking-wider text-emerald-400 block">
+              {/* Exact user benefit explanation of what was good - 2X LARGER */}
+              <div className="p-4 sm:p-5 bg-emerald-500/15 border-2 border-emerald-500/40 rounded-2xl space-y-2">
+                <span className="text-sm sm:text-base font-black uppercase tracking-wider text-emerald-400 block">
                   O que foi bom para você nesta fase ({currentStage.targetHours}h):
                 </span>
-                <p className="text-xs text-slate-200 font-medium leading-relaxed">
+                <p className="text-base sm:text-xl text-slate-100 font-bold leading-relaxed">
                   {currentStage.exactUserBenefit}
                 </p>
               </div>
 
               {/* UNLOCKED NEXT STAGE PROMOTION! */}
               {unlockedNewLevel && nextStage && (
-                <div className="p-3 bg-gradient-to-r from-emerald-500/15 to-cyan-500/15 border border-emerald-500/40 rounded-xl space-y-2">
-                  <div className="flex items-center gap-1.5 text-xs font-black text-emerald-300 uppercase tracking-wider">
-                    <Sparkles className="w-4 h-4 text-emerald-400" />
+                <div className="p-4 bg-gradient-to-r from-emerald-500/15 to-cyan-500/15 border-2 border-emerald-500/40 rounded-2xl space-y-2.5">
+                  <div className="flex items-center gap-2 text-sm sm:text-base font-black text-emerald-300 uppercase tracking-wider">
+                    <Sparkles className="w-5 h-5 text-emerald-400" />
                     <span>Próximo Estágio Desbloqueado!</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="text-base font-black text-white">
+                      <h4 className="text-lg sm:text-xl font-black text-white">
                         Estágio {nextStage.level}: {nextStage.targetHours} Horas
                       </h4>
-                      <p className="text-[11px] text-slate-300 font-semibold">{nextStage.name}</p>
+                      <p className="text-xs sm:text-sm text-slate-300 font-semibold">{nextStage.name}</p>
                     </div>
-                    <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
-                      <ArrowRight className="w-5 h-5" />
+                    <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400">
+                      <ArrowRight className="w-6 h-6" />
                     </div>
                   </div>
-                  <p className="text-[11px] text-cyan-300/90 leading-snug pt-1 border-t border-emerald-500/20">
-                    <strong>Próximo benefício:</strong> {nextStage.exactUserBenefit}
+                  <p className="text-xs sm:text-sm text-cyan-200 font-semibold leading-relaxed pt-2 border-t border-emerald-500/20">
+                    <strong className="text-white">Próximo benefício:</strong> {nextStage.exactUserBenefit}
                   </p>
                 </div>
               )}

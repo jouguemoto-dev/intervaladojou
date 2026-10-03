@@ -519,24 +519,24 @@ export const FastingDashboard: React.FC = () => {
                 </div>
               </div>
 
-              {/* Real-time Biological Stage Indicator */}
-              <div className="bg-slate-950 border-2 border-slate-800/80 rounded-2xl p-5 text-left space-y-2.5">
-                <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-400 block">
+              {/* Real-time Biological Stage Indicator - 2X LARGER FONTS */}
+              <div className="bg-slate-950 border-2 border-slate-800 rounded-3xl p-6 sm:p-8 text-left space-y-3.5 shadow-xl">
+                <span className="text-base sm:text-xl font-black uppercase tracking-wider text-amber-400 block">
                   {metabolicInfo.category}
                 </span>
 
-                <div className="flex items-center gap-2.5">
-                  <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: metabolicInfo.color }} />
-                  <span className="text-base sm:text-xl font-black text-white">
+                <div className="flex items-center gap-3">
+                  <span className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: metabolicInfo.color }} />
+                  <span className="text-xl sm:text-3xl font-black text-white">
                     {metabolicInfo.title}
                   </span>
                 </div>
 
-                <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl space-y-1">
-                  <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-emerald-400 block">
+                <div className="p-5 sm:p-6 bg-emerald-500/15 border-2 border-emerald-500/40 rounded-2xl space-y-2">
+                  <span className="text-base sm:text-xl font-black uppercase tracking-wider text-emerald-400 block">
                     O que está sendo bom para você agora:
                   </span>
-                  <p className="text-sm sm:text-base text-slate-100 font-medium leading-relaxed">
+                  <p className="text-lg sm:text-2xl text-slate-100 font-bold leading-relaxed">
                     {metabolicInfo.desc}
                   </p>
                 </div>
@@ -851,87 +851,87 @@ export const FastingDashboard: React.FC = () => {
               Veja exatamente o que está acontecendo de bom no seu organismo a cada fase atingida:
             </p>
 
-            <div className="space-y-4">
+            <div className="space-y-5">
               {/* Phase 1 */}
-              <div className="p-4 sm:p-5 bg-slate-950 rounded-2xl border-2 border-cyan-500/30 space-y-2">
-                <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-cyan-400 block">
+              <div className="p-5 sm:p-6 bg-slate-950 rounded-3xl border-2 border-cyan-500/40 space-y-3 shadow-md">
+                <span className="text-base sm:text-2xl font-black uppercase tracking-wide text-cyan-400 block">
                   De 2 a 6 horas: Fase alimentada e início da digestão
                 </span>
-                <ul className="space-y-2 text-xs sm:text-sm text-slate-200 font-medium">
-                  <li className="flex items-start gap-2">
-                    <span className="text-cyan-400 font-black">•</span>
-                    <span><strong>2 horas:</strong> O corpo está na fase anabólica ativa. Ele absorve os nutrientes da refeição mais recente, elevando temporariamente o açúcar no sangue e a insulina.</span>
+                <ul className="space-y-3 text-base sm:text-xl text-slate-100 font-semibold leading-relaxed">
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-cyan-400 font-black text-2xl leading-none">•</span>
+                    <span><strong className="text-white">2 horas:</strong> O corpo está na fase anabólica ativa. Ele absorve os nutrientes da refeição mais recente, elevando temporariamente o açúcar no sangue e a insulina.</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-cyan-400 font-black">•</span>
-                    <span><strong>4 horas:</strong> O processo de digestão principal termina na maioria das pessoas. Os níveis de glicose no sangue começam a se estabilizar.</span>
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-cyan-400 font-black text-2xl leading-none">•</span>
+                    <span><strong className="text-white">4 horas:</strong> O processo de digestão principal termina na maioria das pessoas. Os níveis de glicose no sangue começam a se estabilizar.</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-cyan-400 font-black">•</span>
-                    <span><strong>6 horas:</strong> A insulina começa a cair gradualmente. O pâncreas ganha um descanso da produção constante deste hormônio.</span>
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-cyan-400 font-black text-2xl leading-none">•</span>
+                    <span><strong className="text-white">6 horas:</strong> A insulina começa a cair gradualmente. O pâncreas ganha um descanso da produção constante deste hormônio.</span>
                   </li>
                 </ul>
               </div>
 
               {/* Phase 2 */}
-              <div className="p-4 sm:p-5 bg-slate-950 rounded-2xl border-2 border-indigo-500/30 space-y-2">
-                <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-indigo-400 block">
+              <div className="p-5 sm:p-6 bg-slate-950 rounded-3xl border-2 border-indigo-500/40 space-y-3 shadow-md">
+                <span className="text-base sm:text-2xl font-black uppercase tracking-wide text-indigo-400 block">
                   De 8 a 12 horas: A virada metabólica
                 </span>
-                <ul className="space-y-2 text-xs sm:text-sm text-slate-200 font-medium">
-                  <li className="flex items-start gap-2">
-                    <span className="text-indigo-400 font-black">•</span>
-                    <span><strong>8 horas:</strong> O fígado começa a liberar o glicogênio estocado para manter a energia circulante.</span>
+                <ul className="space-y-3 text-base sm:text-xl text-slate-100 font-semibold leading-relaxed">
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-indigo-400 font-black text-2xl leading-none">•</span>
+                    <span><strong className="text-white">8 horas:</strong> O fígado começa a liberar o glicogênio estocado para manter a energia circulante.</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-indigo-400 font-black">•</span>
-                    <span><strong>10 horas:</strong> Os níveis de insulina reduzem-se drasticamente, enviando um sinal químico para que o corpo mude a sua fonte principal de energia.</span>
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-indigo-400 font-black text-2xl leading-none">•</span>
+                    <span><strong className="text-white">10 horas:</strong> Os níveis de insulina reduzem-se drasticamente, enviando um sinal químico para que o corpo mude a sua fonte principal de energia.</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-indigo-400 font-black">•</span>
-                    <span><strong>12 horas:</strong> Inicia-se o estado de jejum real. Os estoques de glicogênio hepático começam a se esgotar, dando o "sinal verde" inicial para a mobilização de gordura.</span>
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-indigo-400 font-black text-2xl leading-none">•</span>
+                    <span><strong className="text-white">12 horas:</strong> Inicia-se o estado de jejum real. Os estoques de glicogênio hepático começam a se esgotar, dando o "sinal verde" inicial para a mobilização de gordura.</span>
                   </li>
                 </ul>
               </div>
 
               {/* Phase 3 */}
-              <div className="p-4 sm:p-5 bg-slate-950 rounded-2xl border-2 border-amber-500/30 space-y-2">
-                <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-400 block">
+              <div className="p-5 sm:p-6 bg-slate-950 rounded-3xl border-2 border-amber-500/40 space-y-3 shadow-md">
+                <span className="text-base sm:text-2xl font-black uppercase tracking-wide text-amber-400 block">
                   De 14 a 18 horas: Queima de gordura e início da cetose
                 </span>
-                <ul className="space-y-2 text-xs sm:text-sm text-slate-200 font-medium">
-                  <li className="flex items-start gap-2">
-                    <span className="text-amber-400 font-black">•</span>
-                    <span><strong>14 horas:</strong> O organismo aumenta significativamente a lipólise (quebra de gordura corporal para geração de energia).</span>
+                <ul className="space-y-3 text-base sm:text-xl text-slate-100 font-semibold leading-relaxed">
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-amber-400 font-black text-2xl leading-none">•</span>
+                    <span><strong className="text-white">14 horas:</strong> O organismo aumenta significativamente a lipólise (quebra de gordura corporal para geração de energia).</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-amber-400 font-black">•</span>
-                    <span><strong>16 horas:</strong> Considerado o padrão mais popular (método 16:8). Aqui, a produção de corpos cetônicos pelo fígado começa a acelerar e pequenas respostas de autofagia (limpeza celular) têm início.</span>
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-amber-400 font-black text-2xl leading-none">•</span>
+                    <span><strong className="text-white">16 horas:</strong> Considerado o padrão mais popular (método 16:8). Aqui, a produção de corpos cetônicos pelo fígado começa a acelerar e pequenas respostas de autofagia (limpeza celular) têm início.</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-amber-400 font-black">•</span>
-                    <span><strong>18 horas:</strong> O hormônio do crescimento (HGH) começa a se elevar substancialmente para proteger a massa magra. Os níveis de energia e foco mental aumentam graças aos corpos cetônicos que alimentam o cérebro.</span>
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-amber-400 font-black text-2xl leading-none">•</span>
+                    <span><strong className="text-white">18 horas:</strong> O hormônio do crescimento (HGH) começa a se elevar substancialmente para proteger a massa magra. Os níveis de energia e foco mental aumentam graças aos corpos cetônicos que alimentam o cérebro.</span>
                   </li>
                 </ul>
               </div>
 
               {/* Phase 4 */}
-              <div className="p-4 sm:p-5 bg-slate-950 rounded-2xl border-2 border-purple-500/30 space-y-2">
-                <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-purple-400 block">
+              <div className="p-5 sm:p-6 bg-slate-950 rounded-3xl border-2 border-purple-500/40 space-y-3 shadow-md">
+                <span className="text-base sm:text-2xl font-black uppercase tracking-wide text-purple-400 block">
                   De 20 a 24 horas: Limpeza celular profunda (Autofagia)
                 </span>
-                <ul className="space-y-2 text-xs sm:text-sm text-slate-200 font-medium">
-                  <li className="flex items-start gap-2">
-                    <span className="text-purple-400 font-black">•</span>
-                    <span><strong>20 horas:</strong> A transição para o uso de gordura como combustível é pronunciada. A inflamação sistêmica começa a dar sinais de redução.</span>
+                <ul className="space-y-3 text-base sm:text-xl text-slate-100 font-semibold leading-relaxed">
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-purple-400 font-black text-2xl leading-none">•</span>
+                    <span><strong className="text-white">20 horas:</strong> A transição para o uso de gordura como combustível é pronunciada. A inflamação sistêmica começa a dar sinais de redução.</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-purple-400 font-black">•</span>
-                    <span><strong>22 horas:</strong> A autofagia atinge níveis mais altos. Suas células começam a identificar e reciclar proteínas velhas, danificadas e componentes celulares disfuncionais.</span>
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-purple-400 font-black text-2xl leading-none">•</span>
+                    <span><strong className="text-white">22 horas:</strong> A autofagia atinge níveis mais altos. Suas células começam a identificar e reciclar proteínas velhas, danificadas e componentes celulares disfuncionais.</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-purple-400 font-black">•</span>
-                    <span><strong>24 horas:</strong> O ciclo de um dia completo resulta no esgotamento severo do glicogênio. O corpo entra em um estado de cetose mais profundo, otimizando o reparo celular e reduzindo drasticamente marcadores inflamatórios.</span>
+                  <li className="flex items-start gap-2.5">
+                    <span className="text-purple-400 font-black text-2xl leading-none">•</span>
+                    <span><strong className="text-white">24 horas:</strong> O ciclo de um dia completo resulta no esgotamento severo do glicogênio. O corpo entra em um estado de cetose mais profundo, otimizando o reparo celular e reduzindo drasticamente marcadores inflamatórios.</span>
                   </li>
                 </ul>
               </div>
@@ -1074,23 +1074,23 @@ export const FastingDashboard: React.FC = () => {
               </h3>
             </div>
 
-            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl text-left space-y-2">
-              <span className="text-xs font-black uppercase tracking-wider text-amber-400 block">
+            <div className="p-5 sm:p-6 bg-slate-950 border-2 border-slate-800 rounded-2xl text-left space-y-3">
+              <span className="text-sm sm:text-lg font-black uppercase tracking-wider text-amber-400 block">
                 {activeMilestoneCelebration.stage.category}
               </span>
 
-              <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl space-y-1">
-                <span className="text-[11px] font-black uppercase tracking-wider text-emerald-400 block">
+              <div className="p-4 sm:p-5 bg-emerald-500/15 border-2 border-emerald-500/40 rounded-xl space-y-2">
+                <span className="text-sm sm:text-lg font-black uppercase tracking-wider text-emerald-400 block">
                   O que está sendo bom para você agora:
                 </span>
-                <p className="text-xs sm:text-sm text-slate-100 font-medium leading-relaxed">
+                <p className="text-base sm:text-2xl text-slate-100 font-bold leading-relaxed">
                   {activeMilestoneCelebration.stage.exactUserBenefit}
                 </p>
               </div>
             </div>
 
             {activeMilestoneCelebration.newLevelUnlocked && (
-              <div className="text-xs sm:text-sm font-bold text-cyan-300 bg-cyan-500/10 p-3 rounded-xl border border-cyan-500/30">
+              <div className="text-sm sm:text-base font-bold text-cyan-300 bg-cyan-500/15 p-3.5 rounded-xl border border-cyan-500/30">
                 🎉 Próximo estágio ({FASTING_STAGES.find((s) => s.level === activeMilestoneCelebration.newLevelUnlocked)?.targetHours || 4}h) desbloqueado!
               </div>
             )}
