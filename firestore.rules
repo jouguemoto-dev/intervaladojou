@@ -23,6 +23,11 @@ service cloud.firestore {
       match /runs/{runId} {
         allow read, write: if isOwner(userId);
       }
+
+      // Individual fasting logs and milestones
+      match /fasts/{fastId} {
+        allow read, write: if isOwner(userId);
+      }
     }
   }
 }

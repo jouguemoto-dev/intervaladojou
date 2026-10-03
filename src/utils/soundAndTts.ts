@@ -668,6 +668,62 @@ class AudioAlertEngine {
   }
 
   /**
+   * Loud celebratory alarm and Portuguese voice cue when a fasting goal is completed
+   */
+  public playFastingCompletionAlarm(targetHours: number) {
+    this.unlockAudio();
+    this.vibrate([200, 100, 200, 100, 400, 100, 500]);
+
+    // 1. Play ringing celebratory chimes
+    const chimeFrequencies = [523.25, 659.25, 783.99, 1046.5, 1318.51, 1567.98];
+    chimeFrequencies.forEach((freq, idx) => {
+      setTimeout(() => {
+        if (!this.audioCtx || !this.masterGain) return;
+        const now = this.audioCtx.currentTime;
+        const osc = this.audioCtx.createOscillator();
+        const gain = this.audioCtx.createGain();
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now);
+        gain.gain.setValueAtTime(0.7, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + 0.45);
+      }, idx * 120);
+    });
+
+    // 2. Play distinct resonant ringing bell sequence
+    setTimeout(() => {
+      if (!this.audioCtx || !this.masterGain) return;
+      const now = this.audioCtx.currentTime;
+      [880, 1108.73, 1318.51].forEach((freq) => {
+        if (!this.audioCtx || !this.masterGain) return;
+        const osc = this.audioCtx.createOscillator();
+        const gain = this.audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now);
+        gain.gain.setValueAtTime(0.6, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+        osc.start(now);
+        osc.stop(now + 0.8);
+      });
+    }, 850);
+
+    // 3. Clear, loud Portuguese voice announcement
+    setTimeout(() => {
+      this.speak(
+        `Atenção! Parabéns! Você concluiu sua meta de ${targetHours} horas de jejum com sucesso! Seu próximo estágio foi liberado!`
+      );
+    }, 1100);
+  }
+
+  /**
    * Test current sound profile live with sprint and jog demonstration
    */
   public testCurrentSound(phase: PhaseType = 'high_intensity') {

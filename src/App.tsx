@@ -28,6 +28,7 @@ import { AndroidCodeHub } from './components/AndroidCodeHub';
 import { UserAccountModal } from './components/UserAccountModal';
 import { ThemeModal } from './components/ThemeModal';
 import { ActivitiesHistoryModal } from './components/ActivitiesHistoryModal';
+import { FastingDashboard } from './components/FastingDashboard';
 import { useTheme } from './context/ThemeContext';
 import { audioAlerts } from './utils/soundAndTts';
 import {
@@ -35,9 +36,10 @@ import {
   User as UserIcon,
   Palette,
   Trophy,
+  Flame,
 } from 'lucide-react';
 
-type MainTab = 'workouts' | 'builder' | 'code';
+type MainTab = 'workouts' | 'builder' | 'jejum' | 'code';
 
 export default function App() {
   const { themeConfig } = useTheme();
@@ -288,14 +290,16 @@ export default function App() {
             />
           )}
 
+          {activeTab === 'jejum' && <FastingDashboard />}
+
           {activeTab === 'code' && <AndroidCodeHub onBack={() => setActiveTab('workouts')} />}
         </main>
 
         {/* Bottom Thumb-Zone Navigation Bar */}
-        <nav className="absolute bottom-0 left-0 right-0 z-30 bg-slate-900/95 backdrop-blur-md border-t border-slate-800/90 h-16 flex items-center justify-around px-8">
+        <nav className="absolute bottom-0 left-0 right-0 z-30 bg-slate-900/95 backdrop-blur-md border-t border-slate-800/90 h-16 flex items-center justify-around px-4 sm:px-8">
           <button
             onClick={() => setActiveTab('workouts')}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-4 transition-colors cursor-pointer ${
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-3 sm:px-4 transition-colors cursor-pointer ${
               activeTab === 'workouts' ? themeConfig.navActive : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -304,8 +308,18 @@ export default function App() {
           </button>
 
           <button
+            onClick={() => setActiveTab('jejum')}
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-3 sm:px-4 transition-colors cursor-pointer ${
+              activeTab === 'jejum' ? themeConfig.navActive : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Flame className="w-5 h-5" />
+            <span className="text-[11px] font-semibold">Jejum</span>
+          </button>
+
+          <button
             onClick={() => setIsThemeModalOpen(true)}
-            className="flex flex-col items-center justify-center gap-1 py-1 px-4 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            className="flex flex-col items-center justify-center gap-1 py-1 px-3 sm:px-4 text-slate-400 hover:text-white transition-colors cursor-pointer"
           >
             <Palette className="w-5 h-5" />
             <span className="text-[11px] font-semibold">Temas</span>
@@ -313,7 +327,7 @@ export default function App() {
 
           <button
             onClick={() => setIsAccountModalOpen(true)}
-            className="flex flex-col items-center justify-center gap-1 py-1 px-4 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            className="flex flex-col items-center justify-center gap-1 py-1 px-3 sm:px-4 text-slate-400 hover:text-white transition-colors cursor-pointer"
           >
             <UserIcon className="w-5 h-5" />
             <span className="text-[11px] font-semibold truncate max-w-[80px]">
