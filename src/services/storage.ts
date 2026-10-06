@@ -151,6 +151,17 @@ export function saveLocalRun(run: any): any[] {
   }
 }
 
+export function deleteLocalRun(runId: string): any[] {
+  try {
+    const history = loadLocalRunHistory().filter((r: any) => r.id !== runId);
+    localStorage.setItem(LOCAL_RUNS_KEY, JSON.stringify(history));
+    return history;
+  } catch (e) {
+    console.error(e);
+    return [];
+  }
+}
+
 export interface DailyGoalConfig {
   type: 'time' | 'steps';
   targetMinutes: number; // e.g. 30 min
@@ -178,6 +189,55 @@ export function saveDailyGoalConfig(config: DailyGoalConfig): void {
     localStorage.setItem(DAILY_GOAL_CONFIG_KEY, JSON.stringify(config));
   } catch (e) {
     console.error(e);
+  }
+}
+
+export interface ActiveWorkoutSessionState {
+  workoutId: string;
+  workout: Workout;
+  currentStepIndex: number;
+  workoutStartTime: number;
+  stepStartTime: number;
+  totalPausedMs: number;
+  stepPausedMs: number;
+  pausedAt: number | null;
+  isPaused: boolean;
+  caloriesBurned: number;
+  updatedAt: number;
+}
+
+const ACTIVE_WORKOUT_SESSION_KEY = 'ritmo_interval_active_workout_session_v1';
+
+export function saveActiveWorkoutSession(session: ActiveWorkoutSessionState): void {
+  try {
+    localStorage.setItem(ACTIVE_WORKOUT_SESSION_KEY, JSON.stringify(session));
+  } catch (err) {
+    console.error('Failed to save active workout session:', err);
+  }
+}
+
+export function loadActiveWorkoutSession(): ActiveWorkoutSessionState | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_WORKOUT_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Ignore stale sessions older than 12 hours
+    if (parsed && typeof parsed === 'object' && Date.now() - (parsed.updatedAt || 0) < 12 * 3600 * 1000) {
+      return parsed as ActiveWorkoutSessionState;
+    }
+    clearActiveWorkoutSession();
+    return null;
+  } catch (err) {
+    console.error('Failed to load active workout session:', err);
+    return null;
+  }
+}
+
+export function clearActiveWorkoutSession(): void {
+  try {
+    localStorage.removeItem(ACTIVE_WORKOUT_SESSION_KEY);
+  } catch (err) {
+    console.error('Failed to clear active workout session:', err);
   }
 }
 

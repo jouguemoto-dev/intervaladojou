@@ -235,28 +235,35 @@ export const UserAccountModal: React.FC<UserAccountModalProps> = ({
   };
 
   const handleSaveProfile = async () => {
-    if (!currentUser) return;
     setIsLoading(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
-      const updated = await syncUserProfile(currentUser, {
+      const profileData = {
         displayName: displayName.trim() || 'Atleta',
         weeklyGoalKm: Number(weeklyGoalKm) || 15,
         weightKg: Number(weightKg) || 70,
         runningLevel,
         soundProfile,
-      });
+      };
 
       // Also apply sound profile to audioAlerts engine
       audioAlerts.setSoundProfile(soundProfile);
 
-      onProfileUpdated(updated);
-      setSuccessMessage('Perfil e preferências personalizadas salvas no banco de dados!');
+      if (currentUser) {
+        const updated = await syncUserProfile(currentUser, profileData);
+        onProfileUpdated(updated);
+        setSuccessMessage('Perfil e preferências salvas na nuvem com sucesso!');
+      } else {
+        const updated = saveLocalProfile(profileData);
+        onProfileUpdated(updated);
+        setSuccessMessage('Perfil e preferências salvas no aparelho com sucesso!');
+      }
+
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Erro ao salvar no banco de dados.');
+      setErrorMessage(err.message || 'Erro ao salvar preferências.');
     } finally {
       setIsLoading(false);
     }

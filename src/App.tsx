@@ -7,6 +7,8 @@ import {
   deleteWorkoutById,
   duplicateWorkoutById,
   resetToDefaults,
+  loadActiveWorkoutSession,
+  clearActiveWorkoutSession,
 } from './services/storage';
 import { DEFAULT_WORKOUTS } from './data/defaultWorkouts';
 import {
@@ -55,11 +57,17 @@ export default function App() {
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isActivitiesModalOpen, setIsActivitiesModalOpen] = useState(false);
 
-  // 1. Automatically activate the cloud database on initial mount
+  // 1. Automatically activate cloud database and restore active workout if app was backgrounded/reloaded
   useEffect(() => {
     ensureActiveAuth().catch((err) => {
       console.warn('Firebase auth inativo ou bloqueado no domínio:', err);
     });
+
+    // Check if there was an ongoing workout session that was backgrounded or interrupted
+    const activeSession = loadActiveWorkoutSession();
+    if (activeSession && activeSession.workout) {
+      setRunningWorkout(activeSession.workout);
+    }
   }, []);
 
   // 2. Listen to authentication state
@@ -218,8 +226,14 @@ export default function App() {
       <div className="w-full h-screen bg-slate-950 text-white overflow-hidden font-sans">
         <WorkoutRunner
           workout={runningWorkout}
-          onFinish={() => setRunningWorkout(null)}
-          onExit={() => setRunningWorkout(null)}
+          onFinish={() => {
+            clearActiveWorkoutSession();
+            setRunningWorkout(null);
+          }}
+          onExit={() => {
+            clearActiveWorkoutSession();
+            setRunningWorkout(null);
+          }}
         />
       </div>
     );
@@ -278,6 +292,7 @@ export default function App() {
               onDuplicateWorkout={handleDuplicateWorkout}
               onDeleteWorkout={handleDeleteWorkout}
               onResetDefaults={handleResetDefaults}
+              onOpenFastingTab={() => setActiveTab('jejum')}
             />
           )}
 

@@ -55,6 +55,9 @@ export function loadLocalFastingProfile(): FastingProfile {
 export function saveLocalFastingProfile(profile: FastingProfile): void {
   try {
     localStorage.setItem(FASTING_PROFILE_KEY, JSON.stringify(profile));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fasting-updated'));
+    }
   } catch (e) {
     console.error('Error saving local fasting profile', e);
   }
@@ -81,6 +84,9 @@ export function saveLocalFastingSession(session: FastingSession): FastingSession
   const updated = [session, ...existing.filter((s) => s.id !== session.id)];
   try {
     localStorage.setItem(FASTING_HISTORY_KEY, JSON.stringify(updated.slice(0, 100)));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fasting-updated'));
+    }
   } catch (e) {
     console.error('Error saving local fasting session', e);
   }

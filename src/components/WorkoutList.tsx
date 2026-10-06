@@ -3,6 +3,7 @@ import { Workout } from '../types/workout';
 import { calculateWorkoutDashboard } from '../utils/dashboardCalculator';
 import { useTheme } from '../context/ThemeContext';
 import { DailyGoalCard } from './DailyGoalCard';
+import { FastingHomeProgressCard } from './FastingHomeProgressCard';
 import {
   Play,
   Plus,
@@ -21,6 +22,7 @@ interface WorkoutListProps {
   onDuplicateWorkout: (id: string) => void;
   onDeleteWorkout: (id: string) => void;
   onResetDefaults: () => void;
+  onOpenFastingTab: () => void;
 }
 
 export const WorkoutList: React.FC<WorkoutListProps> = ({
@@ -31,6 +33,7 @@ export const WorkoutList: React.FC<WorkoutListProps> = ({
   onDuplicateWorkout,
   onDeleteWorkout,
   onResetDefaults,
+  onOpenFastingTab,
 }) => {
   const { themeConfig } = useTheme();
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -38,12 +41,15 @@ export const WorkoutList: React.FC<WorkoutListProps> = ({
   return (
     <div className="flex flex-col h-full bg-slate-950 text-slate-100 overflow-y-auto pb-20">
       {/* Header Area */}
-      <div className="px-5 pt-6 pb-4 max-w-4xl mx-auto w-full">
+      <div className="px-5 pt-6 pb-2 max-w-4xl mx-auto w-full">
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              Treinos
+              Painel Inicial
             </h1>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">
+              Jejum Intermitente & Treinos Intervalados
+            </p>
           </div>
 
           <button
@@ -57,7 +63,10 @@ export const WorkoutList: React.FC<WorkoutListProps> = ({
       </div>
 
       {/* Main List */}
-      <div className="px-5 max-w-4xl mx-auto w-full space-y-4 flex-1">
+      <div className="px-5 max-w-4xl mx-auto w-full space-y-5 flex-1">
+        {/* Fasting Progress Card - Featured on Home Screen */}
+        <FastingHomeProgressCard onOpenFastingTab={onOpenFastingTab} />
+
         {/* Daily Goal & Progress */}
         <DailyGoalCard />
 

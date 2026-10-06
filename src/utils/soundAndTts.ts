@@ -8,6 +8,8 @@ class AudioAlertEngine {
   private masterGain: GainNode | null = null;
   private dynamicsCompressor: DynamicsCompressorNode | null = null;
   private silentAudioElement: HTMLAudioElement | null = null;
+  private keepAliveOsc: OscillatorNode | null = null;
+  private keepAliveGain: GainNode | null = null;
   private voiceSynthesizer: WebAudioVoiceSynthesizer | null = null;
 
   private ttsMuted = false;
@@ -16,6 +18,10 @@ class AudioAlertEngine {
   private currentProfile: SoundProfile = 'whistle';
   private selectedVoice: SpeechSynthesisVoice | null = null;
   private isUnlocked = false;
+  private activeUtterances = new Set<SpeechSynthesisUtterance>();
+  private speechWatchdog: any = null;
+  private speechResumeHeartbeat: any = null;
+  private lastSpeakStartTime = 0;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -25,6 +31,22 @@ class AudioAlertEngine {
           this.initVoices();
         };
       }
+
+      // Re-arm AudioContext and SpeechSynthesis whenever the app returns to foreground
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          if (this.audioCtx && this.audioCtx.state === 'suspended') {
+            this.audioCtx.resume().catch(() => {});
+          }
+          if ('speechSynthesis' in window) {
+            try {
+              if (window.speechSynthesis.paused) {
+                window.speechSynthesis.resume();
+              }
+            } catch {}
+          }
+        }
+      });
     }
   }
 
@@ -40,9 +62,6 @@ class AudioAlertEngine {
 
       if (!this.silentAudioElement) {
         // Continuous generated audio buffer with standard valid WAV RIFF header
-        // 1 second of inaudible 8000Hz mono PCM audio with minimal non-zero amplitude (0.01)
-        // This causes the mobile operating system (Android / iOS) to classify this tab as
-        // active media playback, granting high-priority background CPU execution.
         const silentWavBase64 =
           'data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YRAAAAAAAP//AAAAAAAA//8AAP//';
         const audio = new Audio(silentWavBase64);
@@ -52,6 +71,24 @@ class AudioAlertEngine {
       }
 
       this.silentAudioElement.play().catch(() => {});
+
+      // Continuous low-frequency oscillator connected to destination
+      // Tells Android OS audio HAL and Chrome kernel that audio is actively generating,
+      // preventing background process freezes or worker suspensions when the screen locks!
+      if (this.audioCtx && !this.keepAliveOsc) {
+        try {
+          const osc = this.audioCtx.createOscillator();
+          const gain = this.audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(35, this.audioCtx.currentTime);
+          gain.gain.setValueAtTime(0.0001, this.audioCtx.currentTime);
+          osc.connect(gain);
+          gain.connect(this.audioCtx.destination);
+          osc.start();
+          this.keepAliveOsc = osc;
+          this.keepAliveGain = gain;
+        } catch {}
+      }
 
       // Keep waking up audio and resuming AudioContext
       if (this.audioCtx && this.audioCtx.state === 'suspended') {
@@ -84,6 +121,14 @@ class AudioAlertEngine {
       } catch {
         // Ignore
       }
+    }
+    if (this.keepAliveOsc) {
+      try {
+        this.keepAliveOsc.stop();
+        this.keepAliveOsc.disconnect();
+      } catch {}
+      this.keepAliveOsc = null;
+      this.keepAliveGain = null;
     }
     if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
       navigator.mediaSession.playbackState = 'none';
@@ -744,13 +789,15 @@ class AudioAlertEngine {
   }
 
   /**
-   * Native Text-to-Speech synthesis in Portuguese
+   * Native Text-to-Speech synthesis in Portuguese (100% GC-safe & background-resilient)
    */
   public speak(text: string) {
-    if (this.ttsMuted) return;
+    if (this.ttsMuted || !text || text.trim().length === 0) return;
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
     try {
+      this.unlockAudio();
+
       if (this.audioCtx && this.audioCtx.state === 'suspended') {
         this.audioCtx.resume().catch(() => {});
       }
@@ -758,8 +805,6 @@ class AudioAlertEngine {
       if (window.speechSynthesis.paused) {
         window.speechSynthesis.resume();
       }
-
-      window.speechSynthesis.cancel();
 
       if (!this.selectedVoice) {
         const voices = window.speechSynthesis.getVoices();
@@ -769,33 +814,96 @@ class AudioAlertEngine {
         }
       }
 
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.05;
-      utterance.pitch = 1.05;
-      utterance.lang = 'pt-BR';
-      utterance.volume = Math.min(1.0, this.volumeLevel);
-
-      if (this.selectedVoice) {
-        utterance.voice = this.selectedVoice;
+      // If browser is actively speaking previous phrase or speech is hung, cancel cleanly
+      const isSpeakingOrHung = window.speechSynthesis.speaking;
+      if (isSpeakingOrHung) {
+        window.speechSynthesis.cancel();
       }
 
-      const resumeInterval = setInterval(() => {
-        if (!window.speechSynthesis.speaking) {
-          clearInterval(resumeInterval);
-        } else {
-          window.speechSynthesis.pause();
-          window.speechSynthesis.resume();
+      const executeSpeak = () => {
+        try {
+          if (window.speechSynthesis.paused) {
+            window.speechSynthesis.resume();
+          }
+
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 1.05;
+          utterance.pitch = 1.0;
+          utterance.lang = 'pt-BR';
+          utterance.volume = Math.min(1.0, this.volumeLevel);
+
+          if (this.selectedVoice) {
+            utterance.voice = this.selectedVoice;
+          }
+
+          // Protect from V8/WebKit garbage collector drop
+          this.activeUtterances.add(utterance);
+          if (typeof window !== 'undefined') {
+            if (!(window as any).__activeTtsUtterances) {
+              (window as any).__activeTtsUtterances = [];
+            }
+            (window as any).__activeTtsUtterances.push(utterance);
+            if ((window as any).__activeTtsUtterances.length > 8) {
+              (window as any).__activeTtsUtterances.shift();
+            }
+          }
+
+          this.lastSpeakStartTime = Date.now();
+
+          // Chrome TTS freeze fix: ping resume() every 2 seconds while speech is active
+          if (!this.speechResumeHeartbeat) {
+            this.speechResumeHeartbeat = setInterval(() => {
+              if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                if (window.speechSynthesis.speaking) {
+                  window.speechSynthesis.resume();
+                } else if (this.activeUtterances.size === 0) {
+                  clearInterval(this.speechResumeHeartbeat);
+                  this.speechResumeHeartbeat = null;
+                }
+              }
+            }, 2000);
+          }
+
+          const cleanup = () => {
+            this.activeUtterances.delete(utterance);
+            if (this.speechWatchdog) {
+              clearTimeout(this.speechWatchdog);
+              this.speechWatchdog = null;
+            }
+          };
+
+          utterance.onend = cleanup;
+          utterance.onerror = (e) => {
+            cleanup();
+            if (e.error !== 'interrupted' && e.error !== 'canceled') {
+              console.warn('SpeechSynthesis error:', e.error);
+            }
+          };
+
+          // Watchdog: If browser speech gets stuck for more than 8 seconds, unfreeze the engine
+          if (this.speechWatchdog) {
+            clearTimeout(this.speechWatchdog);
+          }
+          this.speechWatchdog = setTimeout(() => {
+            if (window.speechSynthesis && window.speechSynthesis.speaking) {
+              window.speechSynthesis.cancel();
+              this.activeUtterances.clear();
+            }
+          }, 8000);
+
+          window.speechSynthesis.speak(utterance);
+        } catch {
+          // Speech fallback
         }
-      }, 5000);
-
-      utterance.onend = () => {
-        clearInterval(resumeInterval);
-      };
-      utterance.onerror = () => {
-        clearInterval(resumeInterval);
       };
 
-      window.speechSynthesis.speak(utterance);
+      if (isSpeakingOrHung) {
+        // Safe 80ms delay gives Android TextToSpeech engine time to reset its audio track cleanly
+        setTimeout(executeSpeak, 80);
+      } else {
+        // Micro-delay gives Android Chrome time to settle audio context
+        setTimeout(executeSpeak, 25);
+      }
     } catch {
       // Speech fallback
     }
@@ -803,8 +911,17 @@ class AudioAlertEngine {
 
   public stopAll() {
     this.stopBackgroundKeepAlive();
+    this.activeUtterances.clear();
+    if (this.speechWatchdog) {
+      clearTimeout(this.speechWatchdog);
+      this.speechWatchdog = null;
+    }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // Ignore
+      }
     }
   }
 }

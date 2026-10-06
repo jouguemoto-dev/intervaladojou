@@ -66,6 +66,7 @@ export const FastingDashboard: React.FC = () => {
   // Alarm & Voice Notification State
   const hasAlarmTriggeredRef = useRef(false);
   const [isAlarmRinging, setIsAlarmRinging] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   // Reward Modal State
   const [rewardResult, setRewardResult] = useState<CompleteFastResult | null>(null);
@@ -89,6 +90,18 @@ export const FastingDashboard: React.FC = () => {
         setHistory(sessions);
       }
     });
+
+    const handleUpdate = () => {
+      setProfile(loadLocalFastingProfile());
+      setHistory(loadLocalFastingHistory());
+    };
+
+    window.addEventListener('fasting-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('fasting-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
   }, []);
 
   // Live timer tick for active fast, milestone awards, and target alarm
@@ -200,10 +213,9 @@ export const FastingDashboard: React.FC = () => {
 
   // Handle Cancel Fast
   const handleCancelFast = () => {
-    if (window.confirm('Tem certeza de que deseja cancelar o jejum atual sem registrar?')) {
-      const updated = cancelActiveFast();
-      setProfile(updated);
-    }
+    const updated = cancelActiveFast();
+    setProfile(updated);
+    setShowCancelConfirm(false);
   };
 
   // Fasting calculations
@@ -566,12 +578,30 @@ export const FastingDashboard: React.FC = () => {
                     Ajustar horário de início
                   </button>
 
-                  <button
-                    onClick={handleCancelFast}
-                    className="hover:text-rose-400 transition-colors cursor-pointer"
-                  >
-                    Cancelar jejum
-                  </button>
+                  {showCancelConfirm ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-rose-400 font-bold">Cancelar sem salvar?</span>
+                      <button
+                        onClick={handleCancelFast}
+                        className="px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold hover:bg-rose-500/30 cursor-pointer"
+                      >
+                        Sim, cancelar
+                      </button>
+                      <button
+                        onClick={() => setShowCancelConfirm(false)}
+                        className="px-2 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs cursor-pointer hover:bg-slate-700"
+                      >
+                        Não
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowCancelConfirm(true)}
+                      className="hover:text-rose-400 transition-colors cursor-pointer"
+                    >
+                      Cancelar jejum
+                    </button>
+                  )}
                 </div>
 
                 <button

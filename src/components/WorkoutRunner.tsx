@@ -18,7 +18,14 @@ import {
   estimateCaloriesForSegment,
   reconcileFinalCalories,
 } from '../utils/calorieCalculator';
-import { loadLocalProfile } from '../services/storage';
+import {
+  loadLocalProfile,
+  saveActiveWorkoutSession,
+  loadActiveWorkoutSession,
+  clearActiveWorkoutSession,
+  saveLocalRun,
+} from '../services/storage';
+import { auth, saveRunHistoryToCloud } from '../services/firebase';
 import confetti from 'canvas-confetti';
 import {
   Play,
@@ -57,22 +64,76 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
   const { themeConfig } = useTheme();
   const steps: FlattenedStep[] = useRef(flattenWorkoutSteps(workout)).current;
 
+  // Restore active session if app was backgrounded/restarted
+  const restoredSession = useRef(loadActiveWorkoutSession()).current;
+  const isRestored = Boolean(restoredSession && restoredSession.workoutId === workout.id);
+
+  // Compute restored positioning with atomic precision from atomic clock delta
+  const initialRestoredComputation = (() => {
+    if (!isRestored || !restoredSession) return null;
+    const now = Date.now();
+    const pausedDelta =
+      restoredSession.isPaused && restoredSession.pausedAt ? now - restoredSession.pausedAt : 0;
+    const totalPaused = (restoredSession.totalPausedMs || 0) + pausedDelta;
+    const totalSecs = Math.max(
+      0,
+      Math.floor((now - restoredSession.workoutStartTime - totalPaused) / 1000)
+    );
+
+    let acc = 0;
+    let idx = 0;
+    let inStep = 0;
+    for (let i = 0; i < steps.length; i++) {
+      if (totalSecs < acc + steps[i].durationSeconds) {
+        idx = i;
+        inStep = totalSecs - acc;
+        break;
+      }
+      acc += steps[i].durationSeconds;
+    }
+    const rem = Math.max(0, steps[idx].durationSeconds - inStep);
+    return { idx, rem, totalSecs, stepElapsed: inStep };
+  })();
+
   // State
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [secondsRemaining, setSecondsRemaining] = useState(steps[0]?.durationSeconds || 0);
-  const [isPaused, setIsPaused] = useState(false);
+  const [currentStepIndex, setCurrentStepIndex] = useState(() =>
+    initialRestoredComputation ? initialRestoredComputation.idx : 0
+  );
+  const [secondsRemaining, setSecondsRemaining] = useState(() =>
+    initialRestoredComputation
+      ? initialRestoredComputation.rem
+      : steps[0]?.durationSeconds || 0
+  );
+  const [isPaused, setIsPaused] = useState(() =>
+    isRestored && restoredSession ? restoredSession.isPaused : false
+  );
   const [isCompleted, setIsCompleted] = useState(false);
-  const [totalElapsedSeconds, setTotalElapsedSeconds] = useState(0);
+  const [totalElapsedSeconds, setTotalElapsedSeconds] = useState(() =>
+    initialRestoredComputation ? initialRestoredComputation.totalSecs : 0
+  );
+  // Screen touch lock shield (blocks accidental pocket taps). Starts false so user can interact immediately.
   const [isScreenLockedOn, setIsScreenLockedOn] = useState(false);
   const [showUnlockTip, setShowUnlockTip] = useState(false);
   const [timerDisplayMode, setTimerDisplayMode] = useState<'countdown' | 'elapsed'>('countdown');
 
   // Real-time timestamp anchors for guaranteed atomic precision against atomic clock
-  const workoutStartTimeRef = useRef(Date.now());
-  const stepStartTimeRef = useRef(Date.now());
-  const pausedAtRef = useRef<number | null>(null);
-  const totalPausedMsRef = useRef(0);
-  const stepPausedMsRef = useRef(0);
+  const workoutStartTimeRef = useRef(
+    isRestored && restoredSession ? restoredSession.workoutStartTime : Date.now()
+  );
+  const stepStartTimeRef = useRef(
+    initialRestoredComputation
+      ? Date.now() - initialRestoredComputation.stepElapsed * 1000
+      : Date.now()
+  );
+  const pausedAtRef = useRef<number | null>(
+    isRestored && restoredSession ? restoredSession.pausedAt : null
+  );
+  const totalPausedMsRef = useRef(
+    isRestored && restoredSession ? restoredSession.totalPausedMs : 0
+  );
+  const stepPausedMsRef = useRef(
+    isRestored && restoredSession ? restoredSession.stepPausedMs : 0
+  );
 
   // Audio & TTS toggles
   const [beepsEnabled, setBeepsEnabled] = useState(!audioAlerts.isBeepsMuted());
@@ -85,8 +146,12 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
 
   // Weather & Calorie States
   const [weather, setWeather] = useState<WeatherInfo | null>(null);
-  const [caloriesBurned, setCaloriesBurned] = useState(0);
-  const caloriesBurnedRef = useRef(0);
+  const [caloriesBurned, setCaloriesBurned] = useState(() =>
+    isRestored && restoredSession ? restoredSession.caloriesBurned : 0
+  );
+  const caloriesBurnedRef = useRef(
+    isRestored && restoredSession ? restoredSession.caloriesBurned : 0
+  );
   caloriesBurnedRef.current = caloriesBurned;
 
   // GPS Tracking State
@@ -102,7 +167,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
 
   const gpsTrackerRef = useRef<GpsTrackerEngine | null>(null);
   const wakeLockRef = useRef<any>(null);
-  const isScreenLockedOnRef = useRef(true);
+  const isScreenLockedOnRef = useRef(false);
   isScreenLockedOnRef.current = isScreenLockedOn;
 
   // Mutable refs to prevent useEffect teardown on every single second
@@ -125,6 +190,26 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
   const nextStep = steps[currentStepIndex + 1] as FlattenedStep | undefined;
   const currentCfg = currentStep ? PHASE_CONFIGS[currentStep.phase] : PHASE_CONFIGS.rest;
 
+  const persistSession = useCallback(() => {
+    if (isCompletedRef.current) {
+      clearActiveWorkoutSession();
+      return;
+    }
+    saveActiveWorkoutSession({
+      workoutId: workout.id,
+      workout: workout,
+      currentStepIndex: currentStepIndexRef.current,
+      workoutStartTime: workoutStartTimeRef.current,
+      stepStartTime: stepStartTimeRef.current,
+      totalPausedMs: totalPausedMsRef.current,
+      stepPausedMs: stepPausedMsRef.current,
+      pausedAt: pausedAtRef.current,
+      isPaused: isPausedRef.current,
+      caloriesBurned: caloriesBurnedRef.current,
+      updatedAt: Date.now(),
+    });
+  }, [workout]);
+
   const announceStep = useCallback((step: FlattenedStep) => {
     // 1. Play distinct sound alert tuned specifically for high intensity vs low intensity
     audioAlerts.playPhaseChangeAlert(step.phase);
@@ -142,20 +227,20 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       audioAlerts.playVoiceCue('descanso');
     }
 
-    // 2. Play spoken verbal narration
+    // 3. Play spoken verbal narration
     const phaseName = PHASE_CONFIGS[step.phase]?.label || 'Próxima etapa';
     let msg = '';
     if (step.blockRepetitionIndex) {
-      msg = `Série ${step.blockRepetitionIndex} de ${step.totalBlockRepetitions}. ${phaseName} por ${step.durationSeconds} segundos!`;
+      msg = `Série ${step.blockRepetitionIndex}. ${phaseName}! ${step.durationSeconds} segundos!`;
     } else {
       const mins = Math.floor(step.durationSeconds / 60);
       const secs = step.durationSeconds % 60;
       if (mins > 0 && secs === 0) {
-        msg = `${phaseName} por ${mins} minutos.`;
+        msg = `${phaseName}! ${mins} minutos.`;
       } else if (mins > 0) {
-        msg = `${phaseName} por ${mins} minutos e ${secs} segundos.`;
+        msg = `${phaseName}! ${mins} minutos e ${secs} segundos.`;
       } else {
-        msg = `${phaseName} por ${secs} segundos.`;
+        msg = `${phaseName}! ${secs} segundos.`;
       }
     }
     audioAlerts.speak(msg);
@@ -188,18 +273,29 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
     }
   };
 
-  // Screen WakeLock & GPS Initialization
+  // Screen WakeLock, Session Persistence & GPS Initialization
   useEffect(() => {
     applyWakeLock(true);
+    persistSession();
 
     const handleVisibilityChange = async () => {
       // Re-acquire WakeLock if screen comes back on and lock is enabled
-      if (document.visibilityState === 'visible' && isScreenLockedOnRef.current) {
-        applyWakeLock(true);
+      if (document.visibilityState === 'visible') {
+        if (isScreenLockedOnRef.current) {
+          applyWakeLock(true);
+        }
+      } else {
+        persistSession();
       }
     };
 
+    const handleBeforeUnload = () => {
+      persistSession();
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handleBeforeUnload);
 
     const tracker = new GpsTrackerEngine();
     gpsTrackerRef.current = tracker;
@@ -260,7 +356,10 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
     }
 
     return () => {
+      persistSession();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handleBeforeUnload);
       unsubscribe();
       if (tracker) {
         tracker.stopTracking();
@@ -268,7 +367,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       applyWakeLock(false);
       audioAlerts.stopAll();
     };
-  }, [steps, announceStep, applyWakeLock, workout.name]);
+  }, [steps, announceStep, applyWakeLock, workout.name, persistSession]);
 
   // Sync GPS simulation speed with current phase
   useEffect(() => {
@@ -291,6 +390,68 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
     }
   }, [isPaused]);
 
+  // Guaranteed unified workout completion handler: saves metrics, calories, cloud history, and celebration
+  const finishWorkout = useCallback((finalTotalSeconds: number) => {
+    secondsRemainingRef.current = 0;
+    setSecondsRemaining(0);
+    setIsCompleted(true);
+    isCompletedRef.current = true;
+    clearActiveWorkoutSession();
+    audioAlerts.playCompletionFanfare();
+    audioAlerts.speak('Parabéns! Treino concluído com sucesso!');
+
+    // Save to Firestore cloud history and local persistent storage
+    const finalMetrics = gpsTrackerRef.current?.getMetrics(finalTotalSeconds) || {
+      distanceMeters: 0,
+      averagePaceMinKm: '--:-- /km',
+      currentSpeedKmh: 0,
+      trackPoints: [],
+    };
+
+    const finalCalories = reconcileFinalCalories(
+      caloriesBurnedRef.current,
+      finalMetrics.distanceMeters,
+      finalTotalSeconds,
+      athleteWeightKg
+    );
+
+    const runPayload = {
+      id: `run_${Date.now()}`,
+      workoutId: workout.id,
+      workoutName: workout.name,
+      totalElapsedSeconds: finalTotalSeconds,
+      distanceMeters: finalMetrics.distanceMeters,
+      averagePace: finalMetrics.averagePaceMinKm,
+      speedKmh: finalMetrics.currentSpeedKmh,
+      stepsCompleted: steps.length,
+      totalSteps: steps.length,
+      completedAt: Date.now(),
+      caloriesBurned: finalCalories,
+      temperatureC: weather?.temperatureC,
+      weatherDescription: weather?.description,
+      weatherIcon: weather?.conditionIcon,
+      gpsTrack: finalMetrics.trackPoints || [],
+    };
+
+    saveLocalRun(runPayload);
+    if (auth.currentUser) {
+      saveRunHistoryToCloud(auth.currentUser.uid, runPayload).catch(console.error);
+    }
+
+    try {
+      confetti({
+        particleCount: 140,
+        spread: 90,
+        origin: { y: 0.6 },
+      });
+    } catch {
+      // Confetti fallback
+    }
+  }, [steps.length, workout.id, workout.name, athleteWeightKg, weather]);
+
+  const finishWorkoutRef = useRef(finishWorkout);
+  finishWorkoutRef.current = finishWorkout;
+
   // BULLETPROOF BACKGROUND TIMER VIA WEB WORKER WITH TIMESTAMP DRIFT COMPENSATION
   // Runs continuously in second plan even if screen is locked or phone is in user's pocket
   useEffect(() => {
@@ -306,9 +467,6 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       if (isPausedRef.current || isCompletedRef.current) return;
 
       const now = Date.now();
-      const activeIdx = currentStepIndexRef.current;
-      const activeStep = steps[activeIdx];
-      if (!activeStep) return;
 
       // 1. Advance total elapsed time using exact real-time delta from atomic clock
       const nextTotal = Math.max(
@@ -318,14 +476,41 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       totalElapsedRef.current = nextTotal;
       setTotalElapsedSeconds(nextTotal);
 
-      // 2. Exact step elapsed and remaining seconds from real-time delta
-      const stepElapsed = Math.max(
-        0,
-        Math.floor((now - stepStartTimeRef.current - stepPausedMsRef.current) / 1000)
-      );
-      const currentRemaining = Math.max(0, activeStep.durationSeconds - stepElapsed);
+      // Check if entire workout has finished
+      const totalWorkoutSecs = steps.reduce((acc, s) => acc + s.durationSeconds, 0);
+      if (nextTotal >= totalWorkoutSecs) {
+        finishWorkoutRef.current(totalWorkoutSecs);
+        return;
+      }
+
+      // 2. Mathematically map nextTotal to the exact active step and remaining seconds
+      let accumulatedSec = 0;
+      let calculatedStepIndex = 0;
+      let elapsedInCalculatedStep = 0;
+
+      for (let i = 0; i < steps.length; i++) {
+        const stepDur = steps[i].durationSeconds;
+        if (nextTotal < accumulatedSec + stepDur) {
+          calculatedStepIndex = i;
+          elapsedInCalculatedStep = nextTotal - accumulatedSec;
+          break;
+        }
+        accumulatedSec += stepDur;
+      }
+
+      const activeStep = steps[calculatedStepIndex];
+      const currentRemaining = Math.max(0, activeStep.durationSeconds - elapsedInCalculatedStep);
       secondsRemainingRef.current = currentRemaining;
       setSecondsRemaining(currentRemaining);
+
+      const previousStepIndex = currentStepIndexRef.current;
+      if (calculatedStepIndex !== previousStepIndex) {
+        currentStepIndexRef.current = calculatedStepIndex;
+        setCurrentStepIndex(calculatedStepIndex);
+        stepStartTimeRef.current = now - elapsedInCalculatedStep * 1000;
+        stepPausedMsRef.current = 0;
+        announceStepRef.current(activeStep);
+      }
 
       let currentSpeed = 0;
       let currentDistance = 0;
@@ -349,7 +534,7 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       caloriesBurnedRef.current = nextCal;
       setCaloriesBurned(Math.round(nextCal));
 
-      const upcomingStep = steps[activeIdx + 1];
+      const upcomingStep = steps[calculatedStepIndex + 1];
 
       // Countdown audio ticks at 3, 2, 1
       if (currentRemaining <= 3 && currentRemaining >= 1) {
@@ -369,87 +554,8 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
         audioAlerts.speak(`Atenção: ${nextCfg.label} em 5 segundos.`);
       }
 
-      // Phase finished: advance or complete
-      if (currentRemaining <= 0) {
-        if (activeIdx + 1 < steps.length) {
-          const nextIdx = activeIdx + 1;
-          currentStepIndexRef.current = nextIdx;
-          setCurrentStepIndex(nextIdx);
-          const nextStp = steps[nextIdx];
-
-          // Reset step anchor for the new phase
-          stepStartTimeRef.current = Date.now();
-          stepPausedMsRef.current = 0;
-          secondsRemainingRef.current = nextStp.durationSeconds;
-          setSecondsRemaining(nextStp.durationSeconds);
-          announceStepRef.current(nextStp);
-        } else {
-          // WORKOUT FINISHED!
-          secondsRemainingRef.current = 0;
-          setSecondsRemaining(0);
-          setIsCompleted(true);
-          isCompletedRef.current = true;
-          audioAlerts.playCompletionFanfare();
-          audioAlerts.speak('Parabéns! Treino concluído com sucesso!');
-
-          // Save to Firestore cloud history and local persistent storage
-          const finalMetrics = gpsTrackerRef.current?.getMetrics(nextTotal) || {
-            distanceMeters: 0,
-            averagePaceMinKm: '--:-- /km',
-            currentSpeedKmh: 0,
-            trackPoints: [],
-          };
-
-          const finalCalories = reconcileFinalCalories(
-            caloriesBurnedRef.current,
-            finalMetrics.distanceMeters,
-            nextTotal,
-            athleteWeightKg
-          );
-
-          const runPayload = {
-            id: `run_${Date.now()}`,
-            workoutId: workout.id,
-            workoutName: workout.name,
-            totalElapsedSeconds: nextTotal,
-            distanceMeters: finalMetrics.distanceMeters,
-            averagePace: finalMetrics.averagePaceMinKm,
-            speedKmh: finalMetrics.currentSpeedKmh,
-            stepsCompleted: steps.length,
-            totalSteps: steps.length,
-            completedAt: Date.now(),
-            caloriesBurned: finalCalories,
-            temperatureC: weather?.temperatureC,
-            weatherDescription: weather?.description,
-            weatherIcon: weather?.conditionIcon,
-            gpsTrack: finalMetrics.trackPoints || [],
-          };
-
-          if (typeof window !== 'undefined') {
-            // 1. Immediately save to local storage (guarantees activity is saved even if offline)
-            import('../services/storage').then(({ saveLocalRun }) => {
-              saveLocalRun(runPayload);
-            }).catch(() => {});
-
-            // 2. Sync with cloud Firestore
-            import('../services/firebase').then(({ auth, saveRunHistoryToCloud }) => {
-              if (auth.currentUser) {
-                saveRunHistoryToCloud(auth.currentUser.uid, runPayload).catch(console.error);
-              }
-            }).catch(() => {});
-          }
-
-          try {
-            confetti({
-              particleCount: 140,
-              spread: 90,
-              origin: { y: 0.6 },
-            });
-          } catch {
-            // Confetti fallback
-          }
-        }
-      }
+      // Continuously persist state to storage so backgrounding or tab discard never loses progress
+      persistSession();
     };
 
     const startFallbackInterval = () => {
@@ -571,7 +677,9 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
         }
         audioAlerts.speak('Continuando');
       }
+      isPausedRef.current = next;
       gpsTrackerRef.current?.setPaused(next);
+      setTimeout(persistSession, 0);
       return next;
     });
   };
@@ -585,15 +693,21 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
       setCurrentStepIndex(nextIdx);
       const nextDur = steps[nextIdx].durationSeconds;
 
+      // Calculate cumulative seconds up to nextIdx to keep atomic elapsed clock synchronized
+      let acc = 0;
+      for (let i = 0; i < nextIdx; i++) acc += steps[i].durationSeconds;
+      workoutStartTimeRef.current = Date.now() - acc * 1000 - totalPausedMsRef.current;
       stepStartTimeRef.current = Date.now();
       stepPausedMsRef.current = 0;
       secondsRemainingRef.current = nextDur;
       setSecondsRemaining(nextDur);
+      setTotalElapsedSeconds(acc);
+      totalElapsedRef.current = acc;
       announceStep(steps[nextIdx]);
+      persistSession();
     } else {
-      setIsCompleted(true);
-      audioAlerts.playCompletionFanfare();
-      audioAlerts.speak('Treino concluído!');
+      const totalWorkoutSecs = steps.reduce((acc, s) => acc + s.durationSeconds, 0);
+      finishWorkoutRef.current(totalWorkoutSecs);
     }
   };
 
@@ -604,21 +718,33 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
     const stepElapsed = currentStepDuration - secondsRemainingRef.current;
 
     if (stepElapsed > 3) {
+      let acc = 0;
+      for (let i = 0; i < activeIdx; i++) acc += steps[i].durationSeconds;
+      workoutStartTimeRef.current = Date.now() - acc * 1000 - totalPausedMsRef.current;
       stepStartTimeRef.current = Date.now();
       stepPausedMsRef.current = 0;
       secondsRemainingRef.current = currentStepDuration;
       setSecondsRemaining(currentStepDuration);
+      setTotalElapsedSeconds(acc);
+      totalElapsedRef.current = acc;
+      persistSession();
     } else if (activeIdx > 0) {
       const prevIdx = activeIdx - 1;
       currentStepIndexRef.current = prevIdx;
       setCurrentStepIndex(prevIdx);
       const prevDur = steps[prevIdx].durationSeconds;
 
+      let acc = 0;
+      for (let i = 0; i < prevIdx; i++) acc += steps[i].durationSeconds;
+      workoutStartTimeRef.current = Date.now() - acc * 1000 - totalPausedMsRef.current;
       stepStartTimeRef.current = Date.now();
       stepPausedMsRef.current = 0;
       secondsRemainingRef.current = prevDur;
       setSecondsRemaining(prevDur);
+      setTotalElapsedSeconds(acc);
+      totalElapsedRef.current = acc;
       announceStep(steps[prevIdx]);
+      persistSession();
     }
   };
 
@@ -779,9 +905,15 @@ export const WorkoutRunner: React.FC<WorkoutRunnerProps> = ({
                 setSecondsRemaining(firstDur);
                 setTotalElapsedSeconds(0);
                 setIsCompleted(false);
+                isCompletedRef.current = false;
                 setIsPaused(false);
+                isPausedRef.current = false;
+                caloriesBurnedRef.current = 0;
+                setCaloriesBurned(0);
                 if (gpsTrackerRef.current) gpsTrackerRef.current.startTracking(isSimulatedGps);
+                audioAlerts.startBackgroundKeepAlive(`Treino: ${workout.name}`);
                 if (steps.length > 0) announceStep(steps[0]);
+                persistSession();
               }}
               className="w-full py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-semibold text-xs transition-all cursor-pointer"
             >

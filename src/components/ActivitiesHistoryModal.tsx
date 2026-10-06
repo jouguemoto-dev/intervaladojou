@@ -5,7 +5,7 @@ import {
   db,
   RunHistoryItem,
 } from '../services/firebase';
-import { loadLocalRunHistory, saveLocalRun } from '../services/storage';
+import { loadLocalRunHistory, saveLocalRun, deleteLocalRun } from '../services/storage';
 import { collection, query, orderBy, limit, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
 import { formatTimeDisplay } from '../utils/dashboardCalculator';
 import { useTheme } from '../context/ThemeContext';
@@ -118,8 +118,7 @@ export const ActivitiesHistoryModal: React.FC<ActivitiesHistoryModalProps> = ({
       if (auth.currentUser) {
         await deleteDoc(doc(db, 'users', auth.currentUser.uid, 'runs', runId)).catch(() => {});
       }
-      const local = loadLocalRunHistory().filter((r) => r.id !== runId);
-      localStorage.setItem('ritmo_interval_local_runs', JSON.stringify(local));
+      deleteLocalRun(runId);
       setRuns((prev) => prev.filter((r) => r.id !== runId));
       setDeleteConfirmId(null);
     } catch {
